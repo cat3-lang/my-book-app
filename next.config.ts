@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  allowedDevOrigins: ["192.168.0.62"], // ← ここに追加します！
   experimental: {
     agentFeedback: true,
   },
