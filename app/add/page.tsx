@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers } from "lucide-react";
+import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers, Camera } from "lucide-react";
 
 type ExistingBookInfo = {
   title: string;
@@ -35,7 +35,6 @@ export default function AddBookPage() {
   const [imageLink, setImageLink] = useState("");
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   
-  // 登録日（クライアントサイドで安全に今日の日付を設定）
   const [registeredDate, setRegisteredDate] = useState("");
 
   useEffect(() => {
@@ -56,6 +55,7 @@ export default function AddBookPage() {
     setSortTitle(toKatakana(val));
   };
 
+  // Google Books APIでISBNから自動取得
   const handleFetchByIsbn = async () => {
     const cleanIsbn = isbn.trim();
     if (!cleanIsbn) {
@@ -72,7 +72,7 @@ export default function AddBookPage() {
       const data = await res.json();
 
       if (data.totalItems === 0 || !data.items) {
-        setErrorMessage("該当する書籍が見つかりませんでした。");
+        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
       } else {
         const volumeInfo = data.items[0].volumeInfo;
         const fetchedTitle = volumeInfo.title || "";
@@ -89,6 +89,18 @@ export default function AddBookPage() {
     } finally {
       setFetchingApi(false);
     }
+  };
+
+  // スマホカメラ撮影・画像ファイル選択
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImageLink(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -307,12 +319,13 @@ export default function AddBookPage() {
               />
             </div>
 
+            {/* 表紙画像（自動取得 ＆ カメラ・ファイル選択 ＆ URL入力 ＆ クリア） */}
             <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1">表紙画像URL</label>
+              <label className="block text-xs font-medium text-neutral-400 mb-1">表紙画像</label>
               <div className="flex flex-col sm:flex-row gap-4 items-start">
                 <div className="w-20 h-28 bg-neutral-950 border border-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
                   {imageLink ? (
-                    <img src={imageLink} alt="表紙" className="w-full h-full object-cover" />
+                    <img src={imageLink} alt="表紙プレビュー" className="w-full h-full object-cover" />
                   ) : (
                     <BookOpen className="w-6 h-6 text-neutral-700" />
                   )}
@@ -322,6 +335,7 @@ export default function AddBookPage() {
                   <div className="flex gap-2">
                     <input
                       type="url"
+                      placeholder="画像URL"
                       value={imageLink}
                       onChange={(e) => setImageLink(e.target.value)}
                       className="flex-1 bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
@@ -335,6 +349,19 @@ export default function AddBookPage() {
                         <X className="w-3.5 h-3.5" /> クリア
                       </button>
                     )}
+                  </div>
+                  <div>
+                    <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium cursor-pointer transition">
+                      <Camera className="w-4 h-4 text-neutral-400" />
+                      <span>スマホで表紙を撮影 / 画像を選択</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </label>
                   </div>
                 </div>
               </div>
