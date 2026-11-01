@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Plus, Search, ChevronDown, ChevronUp, Trash2, BookOpen, Layers, Check, X } from "lucide-react";
+import { Plus, Search, ChevronDown, ChevronUp, Trash2, BookOpen, Layers, Check, X, Edit3, Save } from "lucide-react";
 
-const APP_VERSION = "v1.0.24";
+const APP_VERSION = "v1.0.25";
 
 type Book = {
   id: string;
@@ -58,7 +58,9 @@ export default function HomePage() {
   const [expandedTitle, setExpandedTitle] = useState<string | null>(null);
   const [expandedBookIds, setExpandedBookIds] = useState<{ [key: string]: boolean }>({});
 
-  const [editingField, setEditingField] = useState<{ id: string; field: string; value: string } | null>(null);
+  // その場でのインライン編集管理用（どの本のどの項目を編集中か）
+  const [editingBookId, setEditingBookId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<Book>>({});
 
   const fetchBooks = async () => {
     setLoading(true);
@@ -97,11 +99,26 @@ export default function HomePage() {
     setExpandedBookIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleSaveInline = async (id: string, field: string, value: string) => {
-    const updateData: Record<string, any> = { [field]: value };
-    if (field === "title") {
-      updateData.sort_title = value;
-    }
+  // その場での編集開始
+  const startEditing = (book: Book, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingBookId(book.id);
+    setEditForm({ ...book });
+  };
+
+  // その場での編集保存
+  const handleSaveInline = async (id: string) => {
+    const updateData = {
+      title: editForm.title || "",
+      sort_title: editForm.title || "",
+      volume: editForm.volume || null,
+      authors: editForm.authors || null,
+      publisher: editForm.publisher || null,
+      isbn: editForm.isbn || null,
+      release_date: editForm.release_date || null,
+      summary: editForm.summary || null,
+      memo: editForm.memo || null,
+    };
 
     const { error } = await supabase
       .from("books")
@@ -112,8 +129,8 @@ export default function HomePage() {
       alert("保存に失敗しました: " + error.message);
     } else {
       setBooks(books.map((b) => (b.id === id ? { ...b, ...updateData } : b)));
+      setEditingBookId(null);
     }
-    setEditingField(null);
   };
 
   const filteredBooks = books.filter((b) => {
@@ -313,6 +330,8 @@ export default function HomePage() {
                             <div className="space-y-2">
                               {group.books.map((book) => {
                                 const isBookExpanded = !!expandedBookIds[book.id];
+                                const isEditing = editingBookId === book.id;
+
                                 return (
                                   <div 
                                     key={book.id} 
@@ -339,12 +358,27 @@ export default function HomePage() {
                                           <span>情報</span>
                                           {isBookExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                                         </button>
-                                        <Link
-                                          href={`/add?id=${book.id}`}
-                                          className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] transition"
-                                        >
-                                          編集
-                                        </Link>
+
+                                        {!isEditing ? (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => startEditing(book, e)}
+                                            className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] transition inline-flex items-center gap-1 cursor-pointer"
+                                          >
+                                            <Edit3 className="w-3 h-3" />
+                                            <span>編集</span>
+                                          </button>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSaveInline(book.id)}
+                                            className="px-2 py-1 bg-emerald-700 hover:bg-emerald-600 text-white rounded text-[11px] transition inline-flex items-center gap-1 cursor-pointer font-bold"
+                                          >
+                                            <Save className="w-3 h-3" />
+                                            <span>保存</span>
+                                          </button>
+                                        )}
+
                                         <button
                                           type="button"
                                           onClick={() => handleDelete(book.id, book.title, book.volume)}
@@ -356,97 +390,135 @@ export default function HomePage() {
                                       </div>
                                     </div>
 
-                                    {isBookExpanded && (
+                                    {/* 情報が開いている時、または編集中なら詳細を表示 */}
+                                    {(isBookExpanded || isEditing) && (
                                       <div className="mt-2 pt-2 border-t border-neutral-800 space-y-2 text-[11px] text-neutral-300 bg-neutral-950 p-2.5 rounded">
-                                        <div className="grid grid-cols-2 gap-2 pb-1 border-b border-neutral-900">
-                                          <div>
-                                            <span className="text-neutral-500 block text-[10px]">出版社</span>
-                                            {editingField?.id === book.id && editingField?.field === "publisher" ? (
-                                              <div className="flex items-center gap-1 mt-0.5">
+                                        {isEditing ? (
+                                          // --- 編集モード ---
+                                          <div className="space-y-3">
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div>
+                                                <label className="text-[10px] text-neutral-400 block mb-0.5">巻数</label>
                                                 <input
                                                   type="text"
-                                                  value={editingField.value}
-                                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                                  className="bg-neutral-900 border border-neutral-700 px-1.5 py-0.5 text-xs text-neutral-100 rounded w-full"
-                                                  autoFocus
+                                                  value={editForm.volume || ""}
+                                                  onChange={(e) => setEditForm({ ...editForm, volume: e.target.value })}
+                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full font-mono"
                                                 />
-                                                <button onClick={() => handleSaveInline(book.id, "publisher", editingField.value)} className="text-emerald-400 p-1"><Check className="w-3.5 h-3.5" /></button>
-                                                <button onClick={() => setEditingField(null)} className="text-neutral-400 p-1"><X className="w-3.5 h-3.5" /></button>
                                               </div>
-                                            ) : (
-                                              <span 
-                                                onClick={() => setEditingField({ id: book.id, field: "publisher", value: book.publisher || "" })}
-                                                className="text-neutral-200 cursor-pointer hover:underline"
-                                                title="クリックしてその場で変更"
+                                              <div>
+                                                <label className="text-[10px] text-neutral-400 block mb-0.5">著者</label>
+                                                <input
+                                                  type="text"
+                                                  value={editForm.authors || ""}
+                                                  onChange={(e) => setEditForm({ ...editForm, authors: e.target.value })}
+                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full"
+                                                />
+                                              </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <div>
+                                                <label className="text-[10px] text-neutral-400 block mb-0.5">出版社</label>
+                                                <input
+                                                  type="text"
+                                                  value={editForm.publisher || ""}
+                                                  onChange={(e) => setEditForm({ ...editForm, publisher: e.target.value })}
+                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full"
+                                                />
+                                              </div>
+                                              <div>
+                                                <label className="text-[10px] text-neutral-400 block mb-0.5">発売日</label>
+                                                <input
+                                                  type="date"
+                                                  value={editForm.release_date || ""}
+                                                  onChange={(e) => setEditForm({ ...editForm, release_date: e.target.value })}
+                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full font-mono"
+                                                />
+                                              </div>
+                                            </div>
+
+                                            <div>
+                                              <label className="text-[10px] text-neutral-400 block mb-0.5">ISBN</label>
+                                              <input
+                                                type="text"
+                                                value={editForm.isbn || ""}
+                                                onChange={(e) => setEditForm({ ...editForm, isbn: e.target.value })}
+                                                className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full font-mono"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label className="text-[10px] text-neutral-400 block mb-0.5">あらすじ</label>
+                                              <textarea
+                                                rows={2}
+                                                value={editForm.summary || ""}
+                                                onChange={(e) => setEditForm({ ...editForm, summary: e.target.value })}
+                                                className="bg-neutral-900 border border-neutral-700 p-1.5 text-xs text-neutral-100 rounded w-full"
+                                              />
+                                            </div>
+
+                                            <div>
+                                              <label className="text-[10px] text-neutral-400 block mb-0.5">メモ</label>
+                                              <textarea
+                                                rows={2}
+                                                value={editForm.memo || ""}
+                                                onChange={(e) => setEditForm({ ...editForm, memo: e.target.value })}
+                                                className="bg-neutral-900 border border-neutral-700 p-1.5 text-xs text-neutral-100 rounded w-full"
+                                              />
+                                            </div>
+
+                                            <div className="flex justify-end gap-2 pt-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => setEditingBookId(null)}
+                                                className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs"
                                               >
-                                                {book.publisher || "ー"} ✏️
-                                              </span>
-                                            )}
+                                                キャンセル
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleSaveInline(book.id)}
+                                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold"
+                                              >
+                                                変更を保存
+                                              </button>
+                                            </div>
                                           </div>
-                                          <div>
-                                            <span className="text-neutral-500 block text-[10px]">発売日</span>
-                                            <span className="font-mono text-neutral-200">{book.release_date || "ー"}</span>
-                                          </div>
-                                        </div>
-
-                                        <div>
-                                          <span className="text-neutral-500 block text-[10px]">ISBN</span>
-                                          <span className="font-mono text-neutral-200">{book.isbn || "ー"}</span>
-                                        </div>
-
-                                        <div>
-                                          <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">あらすじ</span>
-                                          {editingField?.id === book.id && editingField?.field === "summary" ? (
-                                            <div className="space-y-1">
-                                              <textarea
-                                                rows={2}
-                                                value={editingField.value}
-                                                onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                                className="bg-neutral-900 border border-neutral-700 p-1.5 text-xs text-neutral-100 rounded w-full"
-                                                autoFocus
-                                              />
-                                              <div className="flex gap-1 justify-end">
-                                                <button onClick={() => handleSaveInline(book.id, "summary", editingField.value)} className="bg-emerald-700 text-white px-2 py-0.5 rounded text-[10px]">保存</button>
-                                                <button onClick={() => setEditingField(null)} className="bg-neutral-800 text-neutral-300 px-2 py-0.5 rounded text-[10px]">キャンセル</button>
+                                        ) : (
+                                          // --- 通常表示モード ---
+                                          <div className="space-y-2">
+                                            <div className="grid grid-cols-2 gap-2 pb-1 border-b border-neutral-900">
+                                              <div>
+                                                <span className="text-neutral-500 block text-[10px]">出版社</span>
+                                                <span className="text-neutral-200">{book.publisher || "ー"}</span>
+                                              </div>
+                                              <div>
+                                                <span className="text-neutral-500 block text-[10px]">発売日</span>
+                                                <span className="font-mono text-neutral-200">{book.release_date || "ー"}</span>
                                               </div>
                                             </div>
-                                          ) : (
-                                            <p 
-                                              onClick={() => setEditingField({ id: book.id, field: "summary", value: book.summary || "" })}
-                                              className="text-neutral-300 leading-relaxed bg-neutral-900 p-2 rounded border border-neutral-800 cursor-pointer hover:border-neutral-600 transition"
-                                              title="クリックしてその場で編集"
-                                            >
-                                              {book.summary || "あらすじがありません（クリックして追加）"} ✏️
-                                            </p>
-                                          )}
-                                        </div>
 
-                                        <div>
-                                          <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">メモ</span>
-                                          {editingField?.id === book.id && editingField?.field === "memo" ? (
-                                            <div className="space-y-1">
-                                              <textarea
-                                                rows={2}
-                                                value={editingField.value}
-                                                onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
-                                                className="bg-neutral-900 border border-neutral-700 p-1.5 text-xs text-neutral-100 rounded w-full"
-                                                autoFocus
-                                              />
-                                              <div className="flex gap-1 justify-end">
-                                                <button onClick={() => handleSaveInline(book.id, "memo", editingField.value)} className="bg-emerald-700 text-white px-2 py-0.5 rounded text-[10px]">保存</button>
-                                                <button onClick={() => setEditingField(null)} className="bg-neutral-800 text-neutral-300 px-2 py-0.5 rounded text-[10px]">キャンセル</button>
-                                              </div>
+                                            <div>
+                                              <span className="text-neutral-500 block text-[10px]">ISBN</span>
+                                              <span className="font-mono text-neutral-200">{book.isbn || "ー"}</span>
                                             </div>
-                                          ) : (
-                                            <p 
-                                              onClick={() => setEditingField({ id: book.id, field: "memo", value: book.memo || "" })}
-                                              className="text-neutral-300 italic bg-neutral-900 p-2 rounded border border-neutral-800 cursor-pointer hover:border-neutral-600 transition"
-                                              title="クリックしてその場で編集"
-                                            >
-                                              {book.memo || "メモがありません（クリックして追加）"} ✏️
-                                            </p>
-                                          )}
-                                        </div>
+
+                                            <div>
+                                              <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">あらすじ</span>
+                                              <p className="text-neutral-300 leading-relaxed bg-neutral-900 p-2 rounded border border-neutral-800">
+                                                {book.summary || "あらすじがありません"}
+                                              </p>
+                                            </div>
+
+                                            <div>
+                                              <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">メモ</span>
+                                              <p className="text-neutral-300 italic bg-neutral-900 p-2 rounded border border-neutral-800">
+                                                {book.memo || "メモがありません"}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
