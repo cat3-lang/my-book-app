@@ -56,7 +56,7 @@ export default function AddBookPage() {
     setSortTitle(hiraganaToKatakana(val));
   };
 
-  // 国会図書館 SRU API からの自動取得ロジック
+  // サーバーサイド（APIルート）を経由して国会図書館データを安全に取得
   const handleFetchByIsbn = async () => {
     const cleanIsbn = isbn.trim().replace(/-/g, "");
     if (!cleanIsbn) {
@@ -69,15 +69,17 @@ export default function AddBookPage() {
     setExistingBook(null);
 
     try {
-      const url = `https://ndlsearch.ndl.go.jp/api/sru?operation=searchRetrieve&query=isbn=%22${cleanIsbn}%22&recordSchema=dcndl`;
-      
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      const res = await fetch(`/api/book?isbn=${cleanIsbn}`);
+      const data = await res.json();
+
+      if (!res.ok || data.error) {
+        setErrorMessage(data.error || "書籍データの取得に失敗しました。");
+        setFetchingApi(false);
+        return;
       }
-      
-      const xmlText = await response.text();
-      const xmlDoc = new DOMParser().parseFromString(xmlText, "text/xml");
+
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(data.xmlText, "text/xml");
       const record = xmlDoc.querySelector("record");
 
       if (!record) {
@@ -94,17 +96,13 @@ export default function AddBookPage() {
       const fetchedSeriesTitle = getText("dcndl:seriesTitle");
       const rawCreator = getText("dc:creator");
       const fetchedPublisher = getTexts("dcterms:publisher").join(" / ").replace(/\s*\(.*?\)/g, "").trim();
-      const fetchedIssued = getText("dcterms:issued").replace(/\./g, "-").replace(/\//g, "-");
-
-      // 国会図書館のURL（紹介ページ）を取得
+      
       const identifiers = getTexts("dc:identifier");
       const foundNdlUrl = identifiers.find(id => id.startsWith("http://ndl.go.jp") || id.startsWith("https://ndlsearch.ndl.go.jp")) || "";
 
       // 著者名の整形
       const cleanedAuthor = rawCreator.replace(/\s*(著|編|監修|絵|原作|著書).*$/, "").trim();
 
-      // タイトルから巻数を自動抽出しやすくする、あるいはそのままセット
-      // （必要に応じてタイトル側から巻数を切り分ける処理も可能ですが、まずは取得値をそのまま反映）
       setTitle(fetchedTitle);
       
       if (fetchedTitleTranscription) {
@@ -116,7 +114,6 @@ export default function AddBookPage() {
       setSeries(fetchedSeriesTitle);
       setAuthors(cleanedAuthor);
       setPublisher(fetchedPublisher);
-      setPublishedDate(fetchedIssued);
       if (foundNdlUrl) setNdlUrl(foundNdlUrl);
 
       setErrorMessage("※国会図書館から情報を取得しました。");
@@ -156,7 +153,6 @@ export default function AddBookPage() {
       }
     }
 
-    // Supabaseへ保存（image_linkの代わりにndlUrlやvolumeを保存できるようにスキーマに合わせて調整可能。今回はimage_linkの場所にndlUrlを保存するか、必要に応じてカラムを活用）
     const { error } = await supabase.from("books").insert([
       {
         title: title.trim(),
