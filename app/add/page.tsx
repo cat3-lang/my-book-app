@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText, Loader2, AlertCircle } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.40";
+const APP_VERSION = "v1.0.41";
 
 type ExistingBookInfo = {
   id: string;
@@ -20,6 +20,7 @@ type ExistingBookInfo = {
   authors?: string | null;
   publisher?: string | null;
   summary?: string | null;
+  release_date?: string | null;
 };
 
 export default function AddBookPage() {
@@ -33,6 +34,7 @@ export default function AddBookPage() {
   const [series, setSeries] = useState("");
   const [authors, setAuthors] = useState("");
   const [publisher, setPublisher] = useState("");
+  const [releaseDate, setReleaseDate] = useState("");
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   const [summary, setSummary] = useState("");
   const [memo, setMemo] = useState("");
@@ -62,6 +64,7 @@ export default function AddBookPage() {
     setSeries("");
     setAuthors("");
     setPublisher("");
+    setReleaseDate("");
     setSummary("");
     setMemo("");
     setExistingBook(null);
@@ -90,7 +93,7 @@ export default function AddBookPage() {
       // 1. まずデータベースですでに登録されているかチェック
       const { data: foundData } = await supabase
         .from("books")
-        .select("id, title, created_at, status, memo, volume, series, authors, publisher, summary")
+        .select("id, title, created_at, status, memo, volume, series, authors, publisher, summary, release_date")
         .eq("isbn", cleanIsbn)
         .single();
 
@@ -105,6 +108,7 @@ export default function AddBookPage() {
         if (foundData.series) setSeries(foundData.series);
         if (foundData.authors) setAuthors(foundData.authors);
         if (foundData.publisher) setPublisher(foundData.publisher);
+        if (foundData.release_date) setReleaseDate(foundData.release_date);
 
         setCheckMessage("⚠️ すでに登録されています（既存データをフォームに反映しました）");
         setFetching(false);
@@ -120,8 +124,10 @@ export default function AddBookPage() {
           setTitle(data.title);
           setSortTitle(data.title);
         }
+        if (data.volume) setVolume(data.volume);
         if (data.authors) setAuthors(data.authors);
         if (data.publisher) setPublisher(data.publisher);
+        if (data.releaseDate) setReleaseDate(data.releaseDate);
         if (data.summary) setSummary(data.summary);
         
         setExistingBook(null);
@@ -215,6 +221,7 @@ export default function AddBookPage() {
           series: series.trim() || null,
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
+          release_date: releaseDate || null,
           status: status,
           summary: summary.trim() || null,
           memo: memo.trim() || null,
@@ -241,6 +248,7 @@ export default function AddBookPage() {
           series: series.trim() || null,
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
+          release_date: releaseDate || null,
           isbn: cleanIsbn || null,
           status: status,
           summary: summary.trim() || null,
@@ -331,11 +339,7 @@ export default function AddBookPage() {
           <button
             type="submit"
             disabled={loading}
-            className={`w-full py-3 font-bold text-sm transition cursor-pointer disabled:opacity-50 shadow-sm flex items-center justify-center gap-2 ${
-              existingBook
-                ? "bg-paper-caramel text-white hover:opacity-90"
-                : "bg-paper-caramel text-white hover:opacity-90"
-            }`}
+            className="w-full py-3 font-bold text-sm transition cursor-pointer disabled:opacity-50 shadow-sm flex items-center justify-center gap-2 bg-paper-caramel text-white hover:opacity-90"
           >
             {existingBook ? <RefreshCw className="w-4 h-4" /> : null}
             {loading ? "処理中..." : existingBook ? "この内容でデータを更新（上書き）する" : "本棚に登録する"}
@@ -375,7 +379,7 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* ISBN 入力 ＆ カメラ ＆ 自動取得 */}
+            {/* ISBN 入力 ＆ カメラ（📷 読み取り） ＆ 自動取得 */}
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="block text-xs font-bold text-paper-text-sub">ISBN</label>
@@ -385,7 +389,7 @@ export default function AddBookPage() {
                   className="cursor-pointer text-xs text-paper-text-main bg-paper-sub hover:bg-paper-border px-3 py-1.5 border border-paper-border flex items-center gap-1.5 transition font-bold shadow-2xs"
                 >
                   <Camera className="w-3.5 h-3.5 text-paper-caramel" />
-                  <span>カメラでバーコード読み取り</span>
+                  <span>📷 読み取り</span>
                 </button>
               </div>
 
@@ -496,17 +500,30 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 登録日 */}
-            <div>
-              <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
-                <Calendar className="w-3 h-3 text-paper-caramel" /> 登録日
-              </label>
-              <input
-                type="date"
-                value={registeredDate}
-                onChange={(e) => setRegisteredDate(e.target.value)}
-                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
-              />
+            {/* 発売日 ＆ 登録日 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-paper-caramel" /> 発売日
+                </label>
+                <input
+                  type="date"
+                  value={releaseDate}
+                  onChange={(e) => setReleaseDate(e.target.value)}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-paper-caramel" /> 登録日
+                </label>
+                <input
+                  type="date"
+                  value={registeredDate}
+                  onChange={(e) => setRegisteredDate(e.target.value)}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+                />
+              </div>
             </div>
 
             {/* あらすじ欄 */}
