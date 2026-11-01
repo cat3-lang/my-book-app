@@ -4,11 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
 // 🔄 デプロイ確認用のバージョン番号
-const APP_VERSION = "v1.0.8";
+const APP_VERSION = "v1.0.9";
 
 type ExistingBookInfo = {
   id: string;
@@ -47,6 +47,7 @@ export default function AddBookPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
+  const [checkMessage, setCheckMessage] = useState<string | null>(null); // 確認ボタンの結果メッセージ
 
   // カメラ関連の状態
   const [isScanning, setIsScanning] = useState(false);
@@ -63,6 +64,7 @@ export default function AddBookPage() {
     setPublisher("");
     setMemo("");
     setExistingBook(null);
+    setCheckMessage(null);
   };
 
   const handleTitleChange = (val: string) => {
@@ -70,44 +72,47 @@ export default function AddBookPage() {
     setSortTitle(val);
   };
 
-  // ISBNが変更されたとき、すでに登録されている本を取得する
-  useEffect(() => {
-    const checkExistingBook = async () => {
-      const cleanIsbn = isbn.trim();
-      if (!cleanIsbn || cleanIsbn.length < 10) {
-        setExistingBook(null);
-        return;
-      }
+  // 🔍 重複確認（確認ボタンの処理）
+  const handleCheckIsbn = async () => {
+    const cleanIsbn = isbn.trim();
+    if (!cleanIsbn) {
+      setCheckMessage("ISBNを入力してください。");
+      setExistingBook(null);
+      return;
+    }
 
-      const { data: foundData } = await supabase
-        .from("books")
-        .select("id, title, created_at, status, memo, volume, series, authors, publisher")
-        .eq("isbn", cleanIsbn)
-        .single();
+    setErrorMessage("");
+    const { data: foundData } = await supabase
+      .from("books")
+      .select("id, title, created_at, status, memo, volume, series, authors, publisher")
+      .eq("isbn", cleanIsbn)
+      .single();
 
-      if (foundData) {
-        setExistingBook(foundData);
-        // すでに登録されている場合、現在の登録内容をフォームに反映して編集しやすくする
-        setTitle(foundData.title || "");
-        setSortTitle(foundData.title || "");
-        setStatus(foundData.status || "持っている");
-        setMemo(foundData.memo || "");
-        if (foundData.volume) setVolume(foundData.volume);
-        if (foundData.series) setSeries(foundData.series);
-        if (foundData.authors) setAuthors(foundData.authors);
-        if (foundData.publisher) setPublisher(foundData.publisher);
-      } else {
-        setExistingBook(null);
-      }
-    };
+    if (foundData) {
+      // かぶっている場合：情報をフォームに自動反映
+      setExistingBook(foundData);
+      setTitle(foundData.title || "");
+      setSortTitle(foundData.title || "");
+      setStatus(foundData.status || "持っている");
+      setMemo(foundData.memo || "");
+      if (foundData.volume) setVolume(foundData.volume);
+      if (foundData.series) setSeries(foundData.series);
+      if (foundData.authors) setAuthors(foundData.authors);
+      if (foundData.publisher) setPublisher(foundData.publisher);
 
-    checkExistingBook();
-  }, [isbn]);
+      setCheckMessage("⚠️ すでに登録されています（情報をフォームに反映しました）");
+    } else {
+      // かぶっていない場合
+      setExistingBook(null);
+      setCheckMessage("✅ 未登録です（かぶりなし）");
+    }
+  };
 
   // カメラを起動してバーコード読み取りを開始する
   const startScanner = async () => {
     setIsScanning(true);
     setErrorMessage("");
+    setCheckMessage(null);
 
     setTimeout(async () => {
       try {
@@ -136,7 +141,6 @@ export default function AddBookPage() {
     }, 100);
   };
 
-  // カメラを停止する
   const stopScanner = async () => {
     if (scannerRef.current) {
       try {
@@ -172,7 +176,6 @@ export default function AddBookPage() {
     const cleanIsbn = isbn.trim();
 
     if (existingBook) {
-      // 【既存データの更新（上書き）】
       const { error } = await supabase
         .from("books")
         .update({
@@ -199,7 +202,6 @@ export default function AddBookPage() {
         }, 800);
       }
     } else {
-      // 【新規データの登録】
       const { error } = await supabase.from("books").insert([
         {
           title: title.trim(),
@@ -311,16 +313,6 @@ export default function AddBookPage() {
               <BookOpen className="w-3.5 h-3.5" /> 書籍詳細
             </h2>
 
-            {/* 既に登録されている場合の通知バナー */}
-            {existingBook && (
-              <div className="p-3 bg-amber-950/80 border border-amber-800 text-amber-200 text-xs rounded space-y-1">
-                <p className="font-bold flex items-center gap-1">
-                  ⚠️ すでに登録されている本です。以下の内容を変更して上のボタンから更新できます。
-                </p>
-                <p>登録日: {new Date(existingBook.created_at).toLocaleDateString()}</p>
-              </div>
-            )}
-
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1.5">ステータス</label>
               <div className="grid grid-cols-2 gap-2">
@@ -352,22 +344,60 @@ export default function AddBookPage() {
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="block text-xs font-medium text-neutral-400">ISBN</label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={startScanner}
+                    className="cursor-pointer text-xs text-neutral-200 bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 rounded flex items-center gap-1.5 transition font-semibold"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-neutral-300" />
+                    <span>カメラでバーコード読み取り</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* ISBN入力欄 ＋ 「確認ボタン」 ＋ 「自動更新ボタン（デザインのみ）」 */}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="9784..."
+                  value={isbn}
+                  onChange={(e) => setIsbn(e.target.value)}
+                  className="flex-1 bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500 font-mono"
+                />
                 <button
                   type="button"
-                  onClick={startScanner}
-                  className="cursor-pointer text-xs text-neutral-200 bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 rounded flex items-center gap-1.5 transition font-semibold"
+                  onClick={handleCheckIsbn}
+                  className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold transition flex items-center gap-1 border border-neutral-700 cursor-pointer whitespace-nowrap"
                 >
-                  <Camera className="w-3.5 h-3.5 text-neutral-300" />
-                  <span>カメラでバーコード読み取り</span>
+                  <Search className="w-3.5 h-3.5" />
+                  <span>確認</span>
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className="px-3 py-2 bg-neutral-900 text-neutral-600 text-xs font-bold border border-neutral-800 cursor-not-allowed whitespace-nowrap"
+                  title="後日実装予定"
+                >
+                  自動更新
                 </button>
               </div>
-              <input
-                type="text"
-                placeholder="9784..."
-                value={isbn}
-                onChange={(e) => setIsbn(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500 font-mono"
-              />
+
+              {/* 確認ボタンの結果メッセージ */}
+              {checkMessage && (
+                <div className={`mt-2 p-2.5 text-xs rounded border ${
+                  existingBook 
+                    ? "bg-amber-950/70 border-amber-800 text-amber-200" 
+                    : "bg-emerald-950/70 border-emerald-800 text-emerald-200"
+                }`}>
+                  {checkMessage}
+                  {existingBook && (
+                    <p className="mt-1 text-[11px] text-amber-300">
+                      （登録日: {new Date(existingBook.created_at).toLocaleDateString()} / ステータス: {existingBook.status}）
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
