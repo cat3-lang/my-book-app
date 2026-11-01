@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -35,8 +35,13 @@ export default function AddBookPage() {
   const [imageLink, setImageLink] = useState("");
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   
-  const todayStr = new Date().toISOString().split("T")[0];
-  const [registeredDate, setRegisteredDate] = useState(todayStr);
+  // 登録日（クライアントサイドで安全に今日の日付を設定）
+  const [registeredDate, setRegisteredDate] = useState("");
+
+  useEffect(() => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    setRegisteredDate(todayStr);
+  }, []);
 
   const [memo, setMemo] = useState("");
 
@@ -124,7 +129,7 @@ export default function AddBookPage() {
         image_link: imageLink.trim() || null,
         isbn: cleanIsbn || null,
         status: status,
-        created_at: new Date(registeredDate).toISOString(),
+        created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
         memo: memo.trim() || null,
       },
     ]);
