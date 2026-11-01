@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText, Loader2, AlertCircle } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.41";
+const APP_VERSION = "v1.0.42";
 
 type ExistingBookInfo = {
   id: string;
@@ -26,7 +26,6 @@ type ExistingBookInfo = {
 export default function AddBookPage() {
   const router = useRouter();
 
-  // フォーム入力の状態
   const [isbn, setIsbn] = useState("");
   const [title, setTitle] = useState("");
   const [volume, setVolume] = useState("");
@@ -52,7 +51,6 @@ export default function AddBookPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
 
-  // カメラ関連の状態
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
@@ -76,7 +74,6 @@ export default function AddBookPage() {
     setSortTitle(val);
   };
 
-  // 🔍 ISBN自動取得（サーバーAPI経由）＆重複確認
   const handleAutoFetchAndCheck = async () => {
     const cleanIsbn = isbn.trim();
     if (!cleanIsbn) {
@@ -90,7 +87,6 @@ export default function AddBookPage() {
     setCheckMessage(null);
 
     try {
-      // 1. まずデータベースですでに登録されているかチェック
       const { data: foundData } = await supabase
         .from("books")
         .select("id, title, created_at, status, memo, volume, series, authors, publisher, summary, release_date")
@@ -115,7 +111,6 @@ export default function AddBookPage() {
         return;
       }
 
-      // 2. 未登録の場合はAPI経由で書誌情報を自動取得
       const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`);
       const data = await res.json();
 
@@ -144,7 +139,6 @@ export default function AddBookPage() {
     }
   };
 
-  // カメラ読み取り開始
   const startScanner = async () => {
     setIsScanning(true);
     setErrorMessage("");
@@ -198,7 +192,6 @@ export default function AddBookPage() {
     };
   }, []);
 
-  // 登録または更新の実行
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -277,7 +270,6 @@ export default function AddBookPage() {
 
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-28">
-      {/* ヘッダー */}
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-4 py-3 md:px-8">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Link
@@ -297,7 +289,6 @@ export default function AddBookPage() {
         </div>
       </header>
 
-      {/* カメラ読み取りモーダル */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-none relative shadow-xl">
@@ -335,7 +326,6 @@ export default function AddBookPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* 登録/更新ボタン */}
           <button
             type="submit"
             disabled={loading}
@@ -350,7 +340,6 @@ export default function AddBookPage() {
               <BookOpen className="w-3.5 h-3.5 text-paper-caramel" /> 書籍詳細
             </h2>
 
-            {/* ステータス */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1.5">ステータス</label>
               <div className="grid grid-cols-2 gap-2">
@@ -379,7 +368,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* ISBN 入力 ＆ カメラ（📷 読み取り） ＆ 自動取得 */}
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="block text-xs font-bold text-paper-text-sub">ISBN</label>
@@ -389,7 +377,7 @@ export default function AddBookPage() {
                   className="cursor-pointer text-xs text-paper-text-main bg-paper-sub hover:bg-paper-border px-3 py-1.5 border border-paper-border flex items-center gap-1.5 transition font-bold shadow-2xs"
                 >
                   <Camera className="w-3.5 h-3.5 text-paper-caramel" />
-                  <span>📷 読み取り</span>
+                  <span>読み取り</span>
                 </button>
               </div>
 
@@ -428,7 +416,6 @@ export default function AddBookPage() {
               )}
             </div>
 
-            {/* タイトル ＆ 巻数 */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-3">
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">
@@ -454,7 +441,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* フリガナ ＆ シリーズ */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">フリガナ（並び替え用）</label>
@@ -478,7 +464,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 著者名 ＆ 発行社 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">著者名</label>
@@ -500,7 +485,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 発売日 ＆ 登録日 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
@@ -526,7 +510,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* あらすじ欄 */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
                 <FileText className="w-3 h-3 text-paper-caramel" /> あらすじ
@@ -539,7 +522,6 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* メモ欄 */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">メモ</label>
               <textarea
