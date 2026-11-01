@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera } from "lucide-react";
 
 // 🔄 デプロイ確認用のバージョン番号（更新のたびに数字を増やしてください）
-const APP_VERSION = "v1.0.2";
+const APP_VERSION = "v1.0.3";
 
 type ExistingBookInfo = {
   title: string;
@@ -52,9 +52,31 @@ export default function AddBookPage() {
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
 
+  // フォームの入力内容をすべてクリアする関数
+  const clearForm = () => {
+    setIsbn("");
+    setTitle("");
+    setVolume("");
+    setSortTitle("");
+    setSeries("");
+    setAuthors("");
+    setPublisher("");
+    setPublishedDate("");
+    setMemo("");
+  };
+
   const handleTitleChange = (val: string) => {
     setTitle(val);
     setSortTitle(hiraganaToKatakana(val));
+  };
+
+  // カメラ（バーコード読み取り用：ファイル選択またはinputのcapture属性を利用した簡易スキャン）
+  const handleBarcodeScan = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      // ここでバーコード画像からISBNを読み取る処理、またはスマホのバーコードリーダー連携を想定
+      setErrorMessage("※カメラからのバーコード読み取り機能は現在調整中です。ISBNを手入力するか、バーコード数字を入力してください。");
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -92,7 +114,7 @@ export default function AddBookPage() {
         authors: authors.trim() || null,
         publisher: publisher.trim() || null,
         published_date: publishedDate.trim() || null,
-        image_link: null, // URLなし仕様
+        image_link: null,
         isbn: cleanIsbn || null,
         status: status,
         created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
@@ -109,7 +131,8 @@ export default function AddBookPage() {
       }
       setLoading(false);
     } else {
-      setSuccessMessage("登録が完了しました");
+      setSuccessMessage("登録が完了しました！");
+      clearForm(); // 登録成功時にフォームをクリア
       setTimeout(() => {
         router.push(status === "持っている" ? "/" : "/wants");
       }, 800);
@@ -200,7 +223,21 @@ export default function AddBookPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1">ISBN (任意)</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-xs font-medium text-neutral-400">ISBN (任意)</label>
+                {/* カメラ起動ボタン（スマホ等でのバーコード読み取り用エントリ） */}
+                <label className="cursor-pointer text-xs text-neutral-300 bg-neutral-800 hover:bg-neutral-700 px-2.5 py-1 rounded flex items-center gap-1 transition">
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>カメラで読み取る</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={handleBarcodeScan}
+                  />
+                </label>
+              </div>
               <input
                 type="text"
                 placeholder="9784..."
