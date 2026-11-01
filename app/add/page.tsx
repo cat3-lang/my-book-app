@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X } from "lucide-react";
+import { Html5Qrcode } from "html5-qrcode";
 
-// 🔄 デプロイ確認用のバージョン番号（更新のたびに数字を増やしてください）
-const APP_VERSION = "v1.0.3";
+// 🔄 デプロイ確認用のバージョン番号
+const APP_VERSION = "v1.0.4";
 
 type ExistingBookInfo = {
   title: string;
@@ -30,12 +31,11 @@ export default function AddBookPage() {
   // フォーム入力の状態
   const [isbn, setIsbn] = useState("");
   const [title, setTitle] = useState("");
-  const [volume, setVolume] = useState(""); // 巻数・巻次・部編番号
+  const [volume, setVolume] = useState(""); // 巻数
   const [sortTitle, setSortTitle] = useState("");
   const [series, setSeries] = useState("");
   const [authors, setAuthors] = useState("");
-  const [publisher, setPublisher] = useState(""); // 発行社
-  const [publishedDate, setPublishedDate] = useState("");
+  const [publisher, setPublisher] = useState(""); 
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   
   const [registeredDate, setRegisteredDate] = useState("");
@@ -46,13 +46,16 @@ export default function AddBookPage() {
   }, []);
 
   const [memo, setMemo] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
 
-  // フォームの入力内容をすべてクリアする関数
+  // カメラ関連の状態
+  const [isScanning, setIsScanning] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+
+  // フォームクリア
   const clearForm = () => {
     setIsbn("");
     setTitle("");
@@ -61,7 +64,6 @@ export default function AddBookPage() {
     setSeries("");
     setAuthors("");
     setPublisher("");
-    setPublishedDate("");
     setMemo("");
   };
 
@@ -70,14 +72,66 @@ export default function AddBookPage() {
     setSortTitle(hiraganaToKatakana(val));
   };
 
-  // カメラ（バーコード読み取り用：ファイル選択またはinputのcapture属性を利用した簡易スキャン）
-  const handleBarcodeScan = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files && files.length > 0) {
-      // ここでバーコード画像からISBNを読み取る処理、またはスマホのバーコードリーダー連携を想定
-      setErrorMessage("※カメラからのバーコード読み取り機能は現在調整中です。ISBNを手入力するか、バーコード数字を入力してください。");
-    }
+  // カメラを起動してバーコード読み取りを開始する
+  const startScanner = async () => {
+    setIsScanning(true);
+    setErrorMessage("");
+
+    // 少し遅延させてDOM要素（#reader）が確実に描画されてから初期化する
+    setTimeout(async () => {
+      try {
+        const html5QrCode = new Html5Qrcode("reader");
+        scannerRef.current = html5QrCode;
+
+        await html5QrCode.start(
+          { facingMode: "environment" }, // 背面カメラを使用
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 100 }, // バーコード読み取り用の枠サイズ
+          },
+          (decodedText) => {
+            // 読み取り成功時の処理
+            // ISBN（978から始まる13桁など）かチェック
+            if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
+              setIsbn(decodedText);
+              stopScanner();
+              setErrorMessage("※バーコードを読み取りました！");
+            }
+          },
+          (errorMessage) => {
+            // スキャン中の細かいエラーや非ヒット時は何もしない
+          }
+        );
+      } catch (err) {
+        console.error("Camera start error:", err);
+        setErrorMessage("カメラを起動できませんでした。権限が許可されているか確認してください。");
+        setIsScanning(false);
+      }
+    }, 100);
   };
+
+  // カメラを停止する
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        if (scannerRef.current.isScanning) {
+          await scannerRef.current.stop();
+        }
+        scannerRef.current.clear();
+      } catch (err) {
+        console.error("Failed to stop scanner", err);
+      }
+      scannerRef.current = null;
+    }
+    setIsScanning(false);
+  };
+
+  // ページ離脱時やモーダル閉じるときにカメラを確実に止める
+  useEffect(() => {
+    return () => {
+      stopScanner();
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,7 +167,6 @@ export default function AddBookPage() {
         series: series.trim() || null,
         authors: authors.trim() || null,
         publisher: publisher.trim() || null,
-        published_date: publishedDate.trim() || null,
         image_link: null,
         isbn: cleanIsbn || null,
         status: status,
@@ -132,7 +185,7 @@ export default function AddBookPage() {
       setLoading(false);
     } else {
       setSuccessMessage("登録が完了しました！");
-      clearForm(); // 登録成功時にフォームをクリア
+      clearForm();
       setTimeout(() => {
         router.push(status === "持っている" ? "/" : "/wants");
       }, 800);
@@ -159,6 +212,29 @@ export default function AddBookPage() {
           <div className="w-16" />
         </div>
       </header>
+
+      {/* カメラ読み取りモーダル・ビュー */}
+      {isScanning && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md bg-neutral-900 border border-neutral-800 p-4 rounded-lg relative">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-sm font-bold text-neutral-200">バーコードを枠内に合わせてください</h2>
+              <button
+                type="button"
+                onClick={stopScanner}
+                className="p-1 text-neutral-400 hover:text-neutral-100 bg-neutral-800 rounded-full"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* カメラ映像が表示されるエリア */}
+            <div id="reader" className="w-full overflow-hidden rounded bg-black"></div>
+            <p className="text-xs text-neutral-400 text-center mt-3">
+              本の裏表紙にある「978」から始まるバーコードをスキャンします
+            </p>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-3xl mx-auto px-4 py-8 md:px-8">
         {successMessage && (
@@ -225,25 +301,22 @@ export default function AddBookPage() {
             <div>
               <div className="flex justify-between items-center mb-1">
                 <label className="block text-xs font-medium text-neutral-400">ISBN (任意)</label>
-                {/* カメラ起動ボタン（スマホ等でのバーコード読み取り用エントリ） */}
-                <label className="cursor-pointer text-xs text-neutral-300 bg-neutral-800 hover:bg-neutral-700 px-2.5 py-1 rounded flex items-center gap-1 transition">
-                  <Camera className="w-3.5 h-3.5" />
-                  <span>カメラで読み取る</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={handleBarcodeScan}
-                  />
-                </label>
+                {/* カメラ起動ボタン */}
+                <button
+                  type="button"
+                  onClick={startScanner}
+                  className="cursor-pointer text-xs text-neutral-200 bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 rounded flex items-center gap-1.5 transition font-semibold"
+                >
+                  <Camera className="w-3.5 h-3.5 text-neutral-300" />
+                  <span>カメラでバーコード読み取り</span>
+                </button>
               </div>
               <input
                 type="text"
                 placeholder="9784..."
                 value={isbn}
                 onChange={(e) => setIsbn(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500 font-mono"
               />
             </div>
 
