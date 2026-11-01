@@ -4,10 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Search, BookOpen, Check, Calendar, Layers, ExternalLink } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers } from "lucide-react";
 
-// 🔄 更新のたびに数字を増やしてデプロイ確認に使うバージョン番号
-const APP_VERSION = "v1.0.1";
+// 🔄 デプロイ確認用のバージョン番号（更新のたびに数字を増やしてください）
+const APP_VERSION = "v1.0.2";
 
 type ExistingBookInfo = {
   title: string;
@@ -36,7 +36,6 @@ export default function AddBookPage() {
   const [authors, setAuthors] = useState("");
   const [publisher, setPublisher] = useState(""); // 発行社
   const [publishedDate, setPublishedDate] = useState("");
-  const [ndlUrl, setNdlUrl] = useState(""); // 国会図書館へのリンク
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   
   const [registeredDate, setRegisteredDate] = useState("");
@@ -49,7 +48,6 @@ export default function AddBookPage() {
   const [memo, setMemo] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const [fetchingApi, setFetchingApi] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
@@ -57,53 +55,6 @@ export default function AddBookPage() {
   const handleTitleChange = (val: string) => {
     setTitle(val);
     setSortTitle(hiraganaToKatakana(val));
-  };
-
-  // サーバーサイド（APIルート）を経由して国会図書館データを取得
-  const handleFetchByIsbn = async () => {
-    const cleanIsbn = isbn.trim().replace(/-/g, "");
-    if (!cleanIsbn) {
-      setErrorMessage("13桁のISBNを入力してください。");
-      return;
-    }
-
-    setFetchingApi(true);
-    setErrorMessage("");
-    setExistingBook(null);
-
-    try {
-      const res = await fetch(`/api/book?isbn=${cleanIsbn}`);
-      const data = await res.json();
-
-      if (!res.ok || data.error) {
-        setErrorMessage(data.error || "書籍データの取得に失敗しました。");
-        setFetchingApi(false);
-        return;
-      }
-
-      setTitle(data.title || "");
-      
-      if (data.titleTranscription) {
-        setSortTitle(hiraganaToKatakana(data.titleTranscription));
-      } else {
-        setSortTitle(hiraganaToKatakana(data.title || ""));
-      }
-
-      setSeries(data.seriesTitle || "");
-      setAuthors(data.creator || "");
-      setPublisher(data.publisher || "");
-      
-      // 一旦URLの自動代入を外し、空にするか手動入力にするテスト
-      // setNdlUrl(data.ndlUrl || "");
-
-      setErrorMessage("※国会図書館から情報を取得しました（URLなしテスト中）。");
-
-    } catch (err) {
-      console.error(err);
-      setErrorMessage("情報の取得に失敗しました。");
-    } finally {
-      setFetchingApi(false);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -141,7 +92,7 @@ export default function AddBookPage() {
         authors: authors.trim() || null,
         publisher: publisher.trim() || null,
         published_date: publishedDate.trim() || null,
-        image_link: ndlUrl.trim() || null, 
+        image_link: null, // URLなし仕様
         isbn: cleanIsbn || null,
         status: status,
         created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
@@ -178,7 +129,7 @@ export default function AddBookPage() {
           </Link>
           <div className="flex items-center gap-2">
             <h1 className="text-base font-bold tracking-wider text-neutral-100">本を登録する</h1>
-            <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded">
+            <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded font-mono">
               {APP_VERSION}
             </span>
           </div>
@@ -215,29 +166,6 @@ export default function AddBookPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="bg-neutral-900 border border-neutral-800 p-5 space-y-3">
-            <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Search className="w-3.5 h-3.5" /> ISBN (国会図書館API検索)
-            </h2>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="9784..."
-                value={isbn}
-                onChange={(e) => setIsbn(e.target.value)}
-                className="flex-1 bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
-              />
-              <button
-                type="button"
-                onClick={handleFetchByIsbn}
-                disabled={fetchingApi}
-                className="px-4 py-2 bg-neutral-100 text-neutral-900 text-sm font-semibold hover:bg-neutral-300 transition flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
-              >
-                <span>{fetchingApi ? "取得中..." : "自動取得"}</span>
-              </button>
-            </div>
-          </div>
-
           <div className="bg-neutral-900 border border-neutral-800 p-5 space-y-4">
             <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5" /> 書籍詳細
@@ -269,6 +197,17 @@ export default function AddBookPage() {
                   欲しい本
                 </button>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-neutral-400 mb-1">ISBN (任意)</label>
+              <input
+                type="text"
+                placeholder="9784..."
+                value={isbn}
+                onChange={(e) => setIsbn(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+              />
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -338,30 +277,16 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
-                  <Calendar className="w-3 h-3" /> 登録日
-                </label>
-                <input
-                  type="date"
-                  value={registeredDate}
-                  onChange={(e) => setRegisteredDate(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
-                  <ExternalLink className="w-3 h-3" /> 国会図書館 リンクURL
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://ndlsearch..."
-                  value={ndlUrl}
-                  onChange={(e) => setNdlUrl(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
+            <div>
+              <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
+                <Calendar className="w-3 h-3" /> 登録日
+              </label>
+              <input
+                type="date"
+                value={registeredDate}
+                onChange={(e) => setRegisteredDate(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
+              />
             </div>
 
             <div>
