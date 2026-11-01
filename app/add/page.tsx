@@ -13,10 +13,18 @@ type ExistingBookInfo = {
   memo: string | null;
 };
 
-// 記号やスペースを除外して綺麗にカタカナ変換（フリガナ用）
+// 記号やスペースを除外して綺麗にカタカナ変換（フリガナ補助用）
 function toKatakana(str: string) {
   const cleanStr = str.replace(/[Ａ-Ｚａ-ｚ０-９\s:：()（）「」『』ー-]/g, "");
   return cleanStr.replace(/[\u3041-\u3096]/g, function (match) {
+    var chr = match.charCodeAt(0) + 0x60;
+    return String.fromCharCode(chr);
+  });
+}
+
+// ひらがなをカタカナに変換
+function hiraganaToKatakana(str: string) {
+  return str.replace(/[\u3041-\u3096]/g, function (match) {
     var chr = match.charCodeAt(0) + 0x60;
     return String.fromCharCode(chr);
   });
@@ -53,16 +61,16 @@ export default function AddBookPage() {
 
   // モーダル・トリミング用ステート
   const [showZoomModal, setShowZoomModal] = useState(false);
-  const [imageFitMode, setImageFitMode] = useState<"cover" | "contain">("cover"); // トリミング（全体表示・切り抜き）の切り替え
+  const [imageFitMode, setImageFitMode] = useState<"cover" | "contain">("cover");
 
   const handleTitleChange = (val: string) => {
     setTitle(val);
     setSortTitle(toKatakana(val));
   };
 
-  // Google Books APIによるISBN自動取得
+  // 三段構えハイブリッド検索（Google Books ➔ openBD ➔ 国会図書館）
   const handleFetchByIsbn = async () => {
-    const cleanIsbn = isbn.trim();
+    const cleanIsbn = isbn.trim().replace(/-/g, "");
     if (!cleanIsbn) {
       setErrorMessage("ISBNを入力してください。");
       return;
@@ -73,47 +81,96 @@ export default function AddBookPage() {
     setExistingBook(null);
 
     try {
-      const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-      const data = await res.json();
+      // ── 1. Google Books API ──
+      const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+      const gData = await gRes.json();
 
-      if (data.totalItems === 0 || !data.items) {
-        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
+      if (gData.totalItems > 0 && gData.items) {
+        const volumeInfo = gData.items[0].volumeInfo;
+        const rawTitle = volumeInfo.title || "";
+
+        let parsedTitle = rawTitle;
+        let parsedSeries = volumeInfo.seriesInfo?.bookDisplayTitle || "";
+
+        if (rawTitle.includes(" : ")) {
+          const parts = rawTitle.split(" : ");
+          if (!parsedSeries) parsedSeries = parts[0];
+        }
+        if (rawTitle.includes(" (") && rawTitle.endsWith(")")) {
+          const parts = rawTitle.split(" (");
+          parsedTitle = parts[0];
+          if (!parsedSeries) parsedSeries = parts[1].replace(")", "");
+        }
+
+        setTitle(parsedTitle);
+        setSeries(parsedSeries);
+        setSortTitle(toKatakana(parsedTitle));
+        setAuthors(volumeInfo.authors ? volumeInfo.authors.join(" ") : "");
+        setPublisher(volumeInfo.publisher || "");
+        setPublishedDate(volumeInfo.publishedDate || "");
+        
+        const rawImg = volumeInfo.imageLinks?.thumbnail || volumeInfo.imageLinks?.smallThumbnail || "";
+        setImageLink(rawImg.replace("http://", "https://"));
         setFetchingApi(false);
         return;
       }
 
-      const volumeInfo = data.items[0].volumeInfo;
-      const rawTitle = volumeInfo.title || "";
+      // ── 2. openBD API ──
+      const bdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
+      const bdData = await bdRes.json();
 
-      let parsedTitle = rawTitle;
-      let parsedSeries = volumeInfo.seriesInfo?.bookDisplayTitle || "";
+      if (bdData && bdData[0]) {
+        const summary = bdData[0].summary;
+        const fetchedTitle = summary.title || "";
 
-      // タイトルに「 : 」や「 (」が含まれる場合の切り分け
-      if (rawTitle.includes(" : ")) {
-        const parts = rawTitle.split(" : ");
-        if (!parsedSeries) parsedSeries = parts[0]; // サブタイトル前をシリーズ名候補に
+        setTitle(fetchedTitle);
+        setSortTitle(toKatakana(fetchedTitle));
+        setAuthors(summary.author || "");
+        setPublisher(summary.publisher || "");
+        setPublishedDate(summary.pubdate || "");
+        setImageLink(summary.cover || "");
+        setFetchingApi(false);
+        return;
       }
-      if (rawTitle.includes(" (") && rawTitle.endsWith(")")) {
-        const parts = rawTitle.split(" (");
-        parsedTitle = parts[0];
-        if (!parsedSeries) {
-          parsedSeries = parts[1].replace(")", "");
+
+      // ── 3. 国会図書館サーチ (NDL) API ──
+      const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
+      const ndlRes = await fetch(ndlUrl);
+
+      if (ndlRes.ok) {
+        const xmlText = await ndlRes.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+        const item = xmlDoc.getElementsByTagName("item")[0];
+
+        if (item) {
+          const titleEl = item.getElementsByTagName("title")[0];
+          const dcTitleEl = item.getElementsByTagName("dc:title")[0];
+          const creatorEl = item.getElementsByTagName("dc:creator")[0];
+          const publisherEl = item.getElementsByTagName("dc:publisher")[0];
+          const dateEl = item.getElementsByTagName("dc:date")[0];
+
+          const fetchedTitle = titleEl ? titleEl.textContent || "" : "";
+          const titleKana = dcTitleEl ? dcTitleEl.getAttribute("transcription") || "" : "";
+          const fetchedAuthor = creatorEl ? creatorEl.textContent || "" : "";
+          const fetchedPublisher = publisherEl ? publisherEl.textContent || "" : "";
+          let fetchedDate = dateEl ? dateEl.textContent || "" : "";
+          fetchedDate = fetchedDate.replace(/\./g, "-").replace(/\//g, "-");
+
+          setTitle(fetchedTitle);
+          // 国会図書館の正確なフリガナがあればカタカナに変換して採用
+          setSortTitle(titleKana ? hiraganaToKatakana(titleKana) : toKatakana(fetchedTitle));
+          setAuthors(fetchedAuthor);
+          setPublisher(fetchedPublisher);
+          setPublishedDate(fetchedDate);
+          
+          setErrorMessage("※国会図書館から取得しました。表紙画像はカメラ等で追加してください。");
+          setFetchingApi(false);
+          return;
         }
       }
 
-      setTitle(parsedTitle);
-      setSeries(parsedSeries);
-      setSortTitle(toKatakana(parsedTitle));
-
-      // 著者名はカンマではなくスペース区切りに変換
-      setAuthors(volumeInfo.authors ? volumeInfo.authors.join(" " ) : "");
-      
-      setPublisher(volumeInfo.publisher || "");
-      setPublishedDate(volumeInfo.publishedDate || "");
-      
-      // 画像リンクの取得（httpをhttpsに置換して確実な表示にする）
-      const rawImg = volumeInfo.imageLinks?.thumbnail || volumeInfo.imageLinks?.smallThumbnail || "";
-      setImageLink(rawImg.replace("http://", "https://"));
+      setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
 
     } catch (err) {
       console.error(err);
@@ -123,7 +180,7 @@ export default function AddBookPage() {
     }
   };
 
-  // カメラ撮影・画像選択
+  // 画像選択・撮影
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -233,7 +290,7 @@ export default function AddBookPage() {
         )}
 
         {errorMessage && (
-          <div className="mb-6 p-4 bg-neutral-900 border border-red-500/50 text-red-300 text-sm">
+          <div className="mb-6 p-4 bg-neutral-900 border border-neutral-700 text-neutral-300 text-sm">
             {errorMessage}
           </div>
         )}
@@ -362,7 +419,7 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 表紙画像（プレビュー・拡大・トリミング切り替え・カメラ・アルバム） */}
+            {/* 表紙画像 */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-medium text-neutral-400">表紙画像</label>
@@ -476,7 +533,7 @@ export default function AddBookPage() {
         </form>
       </main>
 
-      {/* 画像拡大＆トリミング確認モーダル */}
+      {/* 拡大モーダル */}
       {showZoomModal && imageLink && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
           <div className="absolute top-4 right-4 flex items-center gap-3">
@@ -502,9 +559,6 @@ export default function AddBookPage() {
               className={`max-h-full max-w-full shadow-2xl ${imageFitMode === "cover" ? "object-cover w-full h-full" : "object-contain"}`}
             />
           </div>
-          <p className="text-xs text-neutral-400 mt-4">
-            ※「切り抜き」と「全体表示」を切り替えることで、登録前後の見た目（トリミング）を調整できます。
-          </p>
         </div>
       )}
     </div>
