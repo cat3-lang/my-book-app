@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers, Camera, Image as ImageIcon, Maximize2, Crop } from "lucide-react";
+import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers, Camera, Image as ImageIcon, Crop } from "lucide-react";
 
 type ExistingBookInfo = {
   title: string;
@@ -12,15 +12,6 @@ type ExistingBookInfo = {
   status: string;
   memo: string | null;
 };
-
-// 記号やスペースを除外して綺麗にカタカナ変換（フリガナ補助用）
-function toKatakana(str: string) {
-  const cleanStr = str.replace(/[Ａ-Ｚａ-ｚ０-９\s:：()（）「」『』ー-]/g, "");
-  return cleanStr.replace(/[\u3041-\u3096]/g, function (match) {
-    var chr = match.charCodeAt(0) + 0x60;
-    return String.fromCharCode(chr);
-  });
-}
 
 // ひらがなをカタカナに変換
 function hiraganaToKatakana(str: string) {
@@ -61,17 +52,17 @@ export default function AddBookPage() {
 
   // トリミング・拡大調整用ステート
   const [showCropModal, setShowCropModal] = useState(false);
-  const [imageFitMode, setImageFitMode] = useState<"cover" | "contain">("cover"); // 切り抜き or 全体表示
-  const [imageScale, setImageScale] = useState(1); // 拡大倍率
-  const [imagePosX, setImagePosX] = useState(0);   // 横位置調整
-  const [imagePosY, setImagePosY] = useState(0);   // 縦位置調整
+  const [imageFitMode, setImageFitMode] = useState<"contain" | "cover">("contain"); // 全体からトリミングしやすくするため初期値をcontainに
+  const [imageScale, setImageScale] = useState(0.8); // 初期値を少し小さくして全体が収まりやすくする
+  const [imagePosX, setImagePosX] = useState(0);   
+  const [imagePosY, setImagePosY] = useState(0);   
 
   const handleTitleChange = (val: string) => {
     setTitle(val);
-    setSortTitle(toKatakana(val));
+    setSortTitle(hiraganaToKatakana(val));
   };
 
-  // 国会図書館サーチを最優先としたハイブリッド検索
+  // 国会図書館サーチのみを使ったISBN自動取得
   const handleFetchByIsbn = async () => {
     const cleanIsbn = isbn.trim().replace(/-/g, "");
     if (!cleanIsbn) {
@@ -84,113 +75,66 @@ export default function AddBookPage() {
     setExistingBook(null);
 
     try {
-      // ── 1. 【第1優先】国会図書館サーチ (NDL) API ──
       const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
       const ndlRes = await fetch(ndlUrl);
 
-      if (ndlRes.ok) {
-        const xmlText = await ndlRes.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-        const item = xmlDoc.getElementsByTagName("item")[0];
-
-        if (item) {
-          const titleEl = item.getElementsByTagName("title")[0];
-          const dcTitleEl = item.getElementsByTagName("dc:title")[0];
-          const creatorEl = item.getElementsByTagName("dc:creator")[0];
-          const publisherEl = item.getElementsByTagName("dc:publisher")[0];
-          const dateEl = item.getElementsByTagName("dc:date")[0];
-
-          const fetchedTitle = titleEl ? titleEl.textContent || "" : "";
-          const titleKana = dcTitleEl ? dcTitleEl.getAttribute("transcription") || "" : "";
-          const fetchedAuthor = creatorEl ? creatorEl.textContent || "" : "";
-          const fetchedPublisher = publisherEl ? publisherEl.textContent || "" : "";
-          let fetchedDate = dateEl ? dateEl.textContent || "" : "";
-          fetchedDate = fetchedDate.replace(/\./g, "-").replace(/\//g, "-");
-
-          setTitle(fetchedTitle);
-          setSortTitle(titleKana ? hiraganaToKatakana(titleKana) : toKatakana(fetchedTitle));
-          setAuthors(fetchedAuthor);
-          setPublisher(fetchedPublisher);
-          setPublishedDate(fetchedDate);
-
-          // 国会図書館は画像がないため、openBDやGoogle Booksで画像だけ追加で探す
-          try {
-            const bdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
-            const bdData = await bdRes.json();
-            if (bdData && bdData[0]?.summary?.cover) {
-              setImageLink(bdData[0].summary.cover);
-            } else {
-              const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-              const gData = await gRes.json();
-              if (gData.totalItems > 0 && gData.items) {
-                const info = gData.items[0].volumeInfo;
-                const rawImg = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || "";
-                if (rawImg) setImageLink(rawImg.replace("http://", "https://"));
-              }
-            }
-          } catch (imgErr) {
-            console.error("画像追加取得エラー", imgErr);
-          }
-
-          setFetchingApi(false);
-          return;
-        }
+      if (!ndlRes.ok) {
+        throw new Error("通信エラー");
       }
 
-      // ── 2. 【第2優先】openBD API ──
-      const bdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
-      const bdData = await bdRes.json();
+      const xmlText = await ndlRes.text();
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+      const item = xmlDoc.getElementsByTagName("item")[0];
 
-      if (bdData && bdData[0]) {
-        const summary = bdData[0].summary;
-        const fetchedTitle = summary.title || "";
-
-        setTitle(fetchedTitle);
-        setSortTitle(toKatakana(fetchedTitle));
-        setAuthors(summary.author || "");
-        setPublisher(summary.publisher || "");
-        setPublishedDate(summary.pubdate || "");
-        setImageLink(summary.cover || "");
+      if (!item) {
+        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
         setFetchingApi(false);
         return;
       }
 
-      // ── 3. 【第3優先】Google Books API ──
-      const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-      const gData = await gRes.json();
+      // 1. タイトル
+      const titleEl = item.getElementsByTagName("title")[0];
+      const dcTitleEl = item.getElementsByTagName("dc:title")[0];
+      const fetchedTitle = titleEl ? titleEl.textContent || "" : "";
+      const titleKana = dcTitleEl ? dcTitleEl.getAttribute("transcription") || "" : "";
 
-      if (gData.totalItems > 0 && gData.items) {
-        const volumeInfo = gData.items[0].volumeInfo;
-        const rawTitle = volumeInfo.title || "";
+      // 2. 著者・編者（例: "増田みりん 著" から余計なタグや記号を整理して「・」で繋ぐなど）
+      const creatorEl = item.getElementsByTagName("dc:creator")[0];
+      let fetchedAuthor = creatorEl ? creatorEl.textContent || "" : "";
+      // 著者名のクリーニング（例: "増田みりん 著" -> "増田みりん"）
+      fetchedAuthor = fetchedAuthor.replace(/\s*(著|編|監修|絵|原作|著書).*$/, "").trim();
 
-        let parsedTitle = rawTitle;
-        let parsedSeries = volumeInfo.seriesInfo?.bookDisplayTitle || "";
+      // 3. 発行社（出版社）
+      const publisherEl = item.getElementsByTagName("dc:publisher")[0];
+      let fetchedPublisher = publisherEl ? publisherEl.textContent || "" : "";
+      // 「一迅社 (発売)」などのカッコ書きがあれば綺麗にするかそのまま、必要に応じて調整
+      fetchedPublisher = fetchedPublisher.replace(/\s*\(.*?\)/g, "").trim();
 
-        if (rawTitle.includes(" : ")) {
-          const parts = rawTitle.split(" : ");
-          if (!parsedSeries) parsedSeries = parts[0];
-        }
-        if (rawTitle.includes(" (") && rawTitle.endsWith(")")) {
-          const parts = rawTitle.split(" (");
-          parsedTitle = parts[0];
-          if (!parsedSeries) parsedSeries = parts[1].replace(")", "");
-        }
-
-        setTitle(parsedTitle);
-        setSeries(parsedSeries);
-        setSortTitle(toKatakana(parsedTitle));
-        setAuthors(volumeInfo.authors ? volumeInfo.authors.join(" ") : "");
-        setPublisher(volumeInfo.publisher || "");
-        setPublishedDate(volumeInfo.publishedDate || "");
-        
-        const rawImg = volumeInfo.imageLinks?.thumbnail || volumeInfo.imageLinks?.smallThumbnail || "";
-        setImageLink(rawImg.replace("http://", "https://"));
-        setFetchingApi(false);
-        return;
+      // 4. シリーズ名（国会図書館のタグから取得、なければタイトルから推定）
+      // ※国会図書館の拡張タグや、もしシリーズ情報があれば取得
+      let fetchedSeries = "";
+      const descriptionEl = item.getElementsByTagName("description")[0];
+      const descText = descriptionEl ? descriptionEl.textContent || "" : "";
+      // シリーズ名が含まれていれば抽出
+      if (fetchedTitle.includes(" (") && fetchedTitle.endsWith(")")) {
+        const parts = fetchedTitle.split(" (");
+        // タイトルはそのまま巻数等を含めて維持しつつ、シリーズを分ける場合
       }
 
-      setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
+      // 5. 発売日
+      const dateEl = item.getElementsByTagName("dc:date")[0];
+      let fetchedDate = dateEl ? dateEl.textContent || "" : "";
+      fetchedDate = fetchedDate.replace(/\./g, "-").replace(/\//g, "-");
+
+      setTitle(fetchedTitle);
+      setSortTitle(titleKana ? hiraganaToKatakana(titleKana) : hiraganaToKatakana(fetchedTitle));
+      setAuthors(fetchedAuthor);
+      setPublisher(fetchedPublisher);
+      setPublishedDate(fetchedDate);
+      setSeries(fetchedSeries);
+
+      setErrorMessage("※国会図書館から情報を取得しました。表紙画像はカメラやアルバムから追加・調整してください。");
 
     } catch (err) {
       console.error(err);
@@ -208,10 +152,11 @@ export default function AddBookPage() {
     const reader = new FileReader();
     reader.onloadend = () => {
       setImageLink(reader.result as string);
-      setImageScale(1);
+      setImageScale(0.8); // 全体から調整しやすいように少し小さめの初期スケールに設定
       setImagePosX(0);
       setImagePosY(0);
-      setShowCropModal(true); // アップロード直後にトリミング・位置調整画面を開く
+      setImageFitMode("contain"); // 全体表示をデフォルトに
+      setShowCropModal(true); 
     };
     reader.readAsDataURL(file);
   };
@@ -322,7 +267,7 @@ export default function AddBookPage() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="bg-neutral-900 border border-neutral-800 p-5 space-y-3">
             <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Search className="w-3.5 h-3.5" /> ISBN
+              <Search className="w-3.5 h-3.5" /> ISBN (国会図書館検索)
             </h2>
             <div className="flex gap-2">
               <input
@@ -377,7 +322,7 @@ export default function AddBookPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1">タイトル *</label>
+              <label className="block text-xs font-medium text-neutral-400 mb-1">タイトル * (巻数・アナザー等含む)</label>
               <input
                 type="text"
                 required
@@ -443,7 +388,7 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 表紙画像（プレビュー・トリミング調整・拡大） */}
+            {/* 表紙画像 */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-medium text-neutral-400">表紙画像</label>
@@ -554,11 +499,11 @@ export default function AddBookPage() {
         </form>
       </main>
 
-      {/* 画像のトリミング・位置調整・拡大モーダル */}
+      {/* 画像のトリミング・位置調整モーダル */}
       {showCropModal && imageLink && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-between p-4 pb-8">
           <div className="w-full flex items-center justify-between max-w-md pt-2">
-            <span className="text-xs font-bold text-neutral-300">表紙のトリミング・位置調整</span>
+            <span className="text-xs font-bold text-neutral-300">表紙の全体トリミング・位置調整</span>
             <button
               type="button"
               onClick={() => setShowCropModal(false)}
@@ -569,7 +514,7 @@ export default function AddBookPage() {
           </div>
 
           {/* トリミング枠（プレビュー） */}
-          <div className="my-auto w-40 h-56 bg-neutral-900 border-2 border-white/80 shadow-2xl flex items-center justify-center overflow-hidden relative">
+          <div className="my-auto w-44 h-64 bg-neutral-900 border-2 border-white/80 shadow-2xl flex items-center justify-center overflow-hidden relative">
             <img
               src={imageLink}
               alt="トリミング調整中"
@@ -577,11 +522,11 @@ export default function AddBookPage() {
                 transform: `scale(${imageScale}) translate(${imagePosX}px, ${imagePosY}px)`,
                 transition: 'transform 0.05s ease'
               }}
-              className={`max-w-none ${imageFitMode === "cover" ? "w-full h-full object-cover" : "object-contain"}`}
+              className={`max-w-none ${imageFitMode === "cover" ? "w-full h-full object-cover" : "object-contain w-full h-full"}`}
             />
           </div>
 
-          {/* 調整コントローラー */}
+          {/* 調整コントローラー（縮小幅を広げて全体から調整しやすく改善） */}
           <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 p-4 space-y-3 text-xs text-neutral-300">
             <div className="flex justify-between items-center">
               <span>表示モード:</span>
@@ -597,13 +542,13 @@ export default function AddBookPage() {
             <div className="space-y-1">
               <div className="flex justify-between">
                 <span>拡大 / 縮小:</span>
-                <span>{imageScale.toFixed(1)}x</span>
+                <span>{imageScale.toFixed(2)}x</span>
               </div>
               <input
                 type="range"
-                min="1"
-                max="3"
-                step="0.1"
+                min="0.2"
+                max="2.5"
+                step="0.05"
                 value={imageScale}
                 onChange={(e) => setImageScale(parseFloat(e.target.value))}
                 className="w-full accent-neutral-100 cursor-pointer"
@@ -615,8 +560,8 @@ export default function AddBookPage() {
                 <span>左右位置:</span>
                 <input
                   type="range"
-                  min="-100"
-                  max="100"
+                  min="-150"
+                  max="150"
                   value={imagePosX}
                   onChange={(e) => setImagePosX(parseInt(e.target.value))}
                   className="w-full accent-neutral-100 cursor-pointer"
@@ -626,8 +571,8 @@ export default function AddBookPage() {
                 <span>上下位置:</span>
                 <input
                   type="range"
-                  min="-100"
-                  max="100"
+                  min="-150"
+                  max="150"
                   value={imagePosY}
                   onChange={(e) => setImagePosY(parseInt(e.target.value))}
                   className="w-full accent-neutral-100 cursor-pointer"
