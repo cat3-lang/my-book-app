@@ -4,26 +4,23 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
 // 🔄 デプロイ確認用のバージョン番号
-const APP_VERSION = "v1.0.6";
+const APP_VERSION = "v1.0.8";
 
 type ExistingBookInfo = {
+  id: string;
   title: string;
   created_at: string;
-  status: string;
+  status: "持っている" | "欲しい";
   memo: string | null;
+  volume?: string | null;
+  series?: string | null;
+  authors?: string | null;
+  publisher?: string | null;
 };
-
-// ひらがなをカタカナに変換するヘルパー
-function hiraganaToKatakana(str: string) {
-  return str.replace(/[\u3041-\u3096]/g, function (match) {
-    var chr = match.charCodeAt(0) + 0x60;
-    return String.fromCharCode(chr);
-  });
-}
 
 export default function AddBookPage() {
   const router = useRouter();
@@ -31,8 +28,8 @@ export default function AddBookPage() {
   // フォーム入力の状態
   const [isbn, setIsbn] = useState("");
   const [title, setTitle] = useState("");
-  const [volume, setVolume] = useState(""); // 巻数
-  const [sortTitle, setSortTitle] = useState(""); // 並び替え用フリガナ
+  const [volume, setVolume] = useState(""); 
+  const [sortTitle, setSortTitle] = useState(""); 
   const [series, setSeries] = useState("");
   const [authors, setAuthors] = useState("");
   const [publisher, setPublisher] = useState(""); 
@@ -68,14 +65,12 @@ export default function AddBookPage() {
     setExistingBook(null);
   };
 
-  // タイトル変更時、フリガナにも連動して入力されるが、フリガナ側は後から自由に変更・漢字以外への修正が可能
   const handleTitleChange = (val: string) => {
     setTitle(val);
-    // 初回や連動時はそのまま代入（必要に応じてユーザーが手動でひらがな・カタカナに直せるようにする）
     setSortTitle(val);
   };
 
-  // ISBNが変更されたとき、すでに登録されている本かどうかをチェックする
+  // ISBNが変更されたとき、すでに登録されている本を取得する
   useEffect(() => {
     const checkExistingBook = async () => {
       const cleanIsbn = isbn.trim();
@@ -86,12 +81,21 @@ export default function AddBookPage() {
 
       const { data: foundData } = await supabase
         .from("books")
-        .select("title, created_at, status, memo")
+        .select("id, title, created_at, status, memo, volume, series, authors, publisher")
         .eq("isbn", cleanIsbn)
         .single();
 
       if (foundData) {
         setExistingBook(foundData);
+        // すでに登録されている場合、現在の登録内容をフォームに反映して編集しやすくする
+        setTitle(foundData.title || "");
+        setSortTitle(foundData.title || "");
+        setStatus(foundData.status || "持っている");
+        setMemo(foundData.memo || "");
+        if (foundData.volume) setVolume(foundData.volume);
+        if (foundData.series) setSeries(foundData.series);
+        if (foundData.authors) setAuthors(foundData.authors);
+        if (foundData.publisher) setPublisher(foundData.publisher);
       } else {
         setExistingBook(null);
       }
@@ -154,6 +158,7 @@ export default function AddBookPage() {
     };
   }, []);
 
+  // 登録または更新の実行
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -166,36 +171,66 @@ export default function AddBookPage() {
 
     const cleanIsbn = isbn.trim();
 
-    // 登録処理（並び替え用の sort_title にはフリガナ欄の値を使うため、正しくソート可能になります）
-    const { error } = await supabase.from("books").insert([
-      {
-        title: title.trim(),
-        sort_title: sortTitle.trim() || title.trim(),
-        series: series.trim() || null,
-        authors: authors.trim() || null,
-        publisher: publisher.trim() || null,
-        image_link: null,
-        isbn: cleanIsbn || null,
-        status: status,
-        created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
-        memo: memo.trim() || null,
-      },
-    ]);
+    if (existingBook) {
+      // 【既存データの更新（上書き）】
+      const { error } = await supabase
+        .from("books")
+        .update({
+          title: title.trim(),
+          sort_title: sortTitle.trim() || title.trim(),
+          volume: volume.trim() || null,
+          series: series.trim() || null,
+          authors: authors.trim() || null,
+          publisher: publisher.trim() || null,
+          status: status,
+          memo: memo.trim() || null,
+        })
+        .eq("id", existingBook.id);
 
-    if (error) {
-      console.error(error);
-      if (error.code === "23505") {
-        setErrorMessage("このISBNの本はすでに登録されています。");
+      if (error) {
+        console.error(error);
+        setErrorMessage(`更新に失敗しました: ${error.message}`);
+        setLoading(false);
       } else {
-        setErrorMessage(`登録に失敗しました: ${error.message}`);
+        setSuccessMessage("既存のデータを更新しました！");
+        clearForm();
+        setTimeout(() => {
+          router.push(status === "持っている" ? "/" : "/wants");
+        }, 800);
       }
-      setLoading(false);
     } else {
-      setSuccessMessage("登録が完了しました！");
-      clearForm();
-      setTimeout(() => {
-        router.push(status === "持っている" ? "/" : "/wants");
-      }, 800);
+      // 【新規データの登録】
+      const { error } = await supabase.from("books").insert([
+        {
+          title: title.trim(),
+          sort_title: sortTitle.trim() || title.trim(),
+          volume: volume.trim() || null,
+          series: series.trim() || null,
+          authors: authors.trim() || null,
+          publisher: publisher.trim() || null,
+          image_link: null,
+          isbn: cleanIsbn || null,
+          status: status,
+          created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
+          memo: memo.trim() || null,
+        },
+      ]);
+
+      if (error) {
+        console.error(error);
+        if (error.code === "23505") {
+          setErrorMessage("このISBNの本はすでに登録されています。");
+        } else {
+          setErrorMessage(`登録に失敗しました: ${error.message}`);
+        }
+        setLoading(false);
+      } else {
+        setSuccessMessage("登録が完了しました！");
+        clearForm();
+        setTimeout(() => {
+          router.push(status === "持っている" ? "/" : "/wants");
+        }, 800);
+      }
     }
   };
 
@@ -257,19 +292,34 @@ export default function AddBookPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* 上部の登録ボタン */}
+          {/* 上部の登録/更新ボタン */}
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 bg-neutral-100 text-neutral-900 font-bold text-sm hover:bg-neutral-300 transition cursor-pointer disabled:opacity-50 rounded shadow-md"
+            className={`w-full py-3 font-bold text-sm transition cursor-pointer disabled:opacity-50 rounded shadow-md flex items-center justify-center gap-2 ${
+              existingBook
+                ? "bg-amber-500 text-neutral-950 hover:bg-amber-400"
+                : "bg-neutral-100 text-neutral-900 hover:bg-neutral-300"
+            }`}
           >
-            {loading ? "登録中..." : "本棚に登録する"}
+            {existingBook ? <RefreshCw className="w-4 h-4" /> : null}
+            {loading ? "処理中..." : existingBook ? "この内容でデータを更新（上書き）する" : "本棚に登録する"}
           </button>
 
           <div className="bg-neutral-900 border border-neutral-800 p-5 space-y-4">
             <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5" /> 書籍詳細
             </h2>
+
+            {/* 既に登録されている場合の通知バナー */}
+            {existingBook && (
+              <div className="p-3 bg-amber-950/80 border border-amber-800 text-amber-200 text-xs rounded space-y-1">
+                <p className="font-bold flex items-center gap-1">
+                  ⚠️ すでに登録されている本です。以下の内容を変更して上のボタンから更新できます。
+                </p>
+                <p>登録日: {new Date(existingBook.created_at).toLocaleDateString()}</p>
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1.5">ステータス</label>
@@ -318,17 +368,6 @@ export default function AddBookPage() {
                 onChange={(e) => setIsbn(e.target.value)}
                 className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500 font-mono"
               />
-              
-              {/* すでに登録されている場合の表示 */}
-              {existingBook && (
-                <div className="mt-2 p-3 bg-amber-950/60 border border-amber-800/80 text-amber-200 text-xs rounded space-y-1">
-                  <p className="font-bold flex items-center gap-1">
-                    ⚠️ すでに登録済みです（ステータス: {existingBook.status}）
-                  </p>
-                  <p><strong className="text-amber-100">タイトル:</strong> {existingBook.title}</p>
-                  <p><strong className="text-amber-100">登録日:</strong> {new Date(existingBook.created_at).toLocaleDateString()}</p>
-                </div>
-              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -356,7 +395,7 @@ export default function AddBookPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1">フリガナ（並び替え用・ひらがな/カタカナで入力）</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">フリガナ（並び替え用・ひらがな/カタカナ）</label>
                 <input
                   type="text"
                   value={sortTitle}
@@ -421,15 +460,6 @@ export default function AddBookPage() {
               />
             </div>
           </div>
-
-          {/* 下部の登録ボタン */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-neutral-100 text-neutral-900 font-bold text-sm hover:bg-neutral-300 transition cursor-pointer disabled:opacity-50 rounded shadow-md"
-          >
-            {loading ? "登録中..." : "本棚に登録する"}
-          </button>
         </form>
       </main>
     </div>
