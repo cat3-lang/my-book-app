@@ -8,7 +8,7 @@ import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Sea
 import { Html5Qrcode } from "html5-qrcode";
 
 // 🔄 デプロイ確認用のバージョン番号
-const APP_VERSION = "v1.0.11";
+const APP_VERSION = "v1.0.12";
 
 type ExistingBookInfo = {
   id: string;
@@ -36,9 +36,9 @@ export default function AddBookPage() {
   const [authors, setAuthors] = useState("");
   const [publisher, setPublisher] = useState(""); 
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
-  const [summary, setSummary] = useState(""); // あらすじ
-  const [memo, setMemo] = useState(""); // メモ
-  const [releaseDate, setReleaseDate] = useState(""); // 発売日
+  const [summary, setSummary] = useState(""); 
+  const [memo, setMemo] = useState(""); 
+  const [releaseDate, setReleaseDate] = useState(""); 
 
   const [registeredDate, setRegisteredDate] = useState("");
 
@@ -88,11 +88,17 @@ export default function AddBookPage() {
     }
 
     setErrorMessage("");
-    const { data: foundData } = await supabase
+    const { data: foundData, error } = await supabase
       .from("books")
       .select("id, title, created_at, status, memo, volume, series, authors, publisher, summary, release_date")
       .eq("isbn", cleanIsbn)
-      .single();
+      .maybeSingle();
+
+    if (error) {
+      console.error(error);
+      setCheckMessage("検索中にエラーが発生しました。");
+      return;
+    }
 
     if (foundData) {
       setExistingBook(foundData);
@@ -181,7 +187,6 @@ export default function AddBookPage() {
 
     const cleanIsbn = isbn.trim();
 
-    // 送信データオブジェクト
     const bookData = {
       title: title.trim(),
       sort_title: sortTitle.trim() || title.trim(),
@@ -297,7 +302,6 @@ export default function AddBookPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* 上部の登録/更新ボタン */}
           <button
             type="submit"
             disabled={loading}
@@ -469,7 +473,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 日付関連（登録日 & 発売日） */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
@@ -495,7 +498,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* あらすじ欄 */}
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
                 <FileText className="w-3 h-3" /> あらすじ
@@ -509,7 +511,6 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* メモ欄 */}
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1">メモ（キーワード検索に活用できます）</label>
               <textarea
