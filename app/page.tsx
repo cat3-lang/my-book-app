@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Plus, Search, ChevronDown, ChevronUp, Trash2, BookOpen, Layers } from "lucide-react";
+import { Plus, Search, ChevronDown, ChevronUp, Trash2, BookOpen, Layers, Check, X } from "lucide-react";
 
-const APP_VERSION = "v1.0.20";
+const APP_VERSION = "v1.0.24";
 
 type Book = {
   id: string;
@@ -47,13 +47,18 @@ function getSeionGroup(sortTitle: string): string {
   return "その他";
 }
 
+const SEION_TABS = ["すべて", "あ行", "か行", "さ行", "た行", "な行", "は行", "ま行", "や行", "ら行", "わ行", "英数字", "その他"];
+
 export default function HomePage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTab, setSelectedTab] = useState("すべて");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [expandedTitle, setExpandedTitle] = useState<string | null>(null);
   const [expandedBookIds, setExpandedBookIds] = useState<{ [key: string]: boolean }>({});
+
+  const [editingField, setEditingField] = useState<{ id: string; field: string; value: string } | null>(null);
 
   const fetchBooks = async () => {
     setLoading(true);
@@ -77,7 +82,7 @@ export default function HomePage() {
 
   const handleDelete = async (id: string, title: string, volume: string | null) => {
     const volStr = volume ? ` (${volume}巻)` : "";
-    if (!confirm(`「${title}${volStr}」を削除してもよろしいですか？`)) return;
+    if (!window.confirm(`「${title}${volStr}」を削除してもよろしいですか？`)) return;
 
     const { error } = await supabase.from("books").delete().eq("id", id);
     if (error) {
@@ -92,9 +97,33 @@ export default function HomePage() {
     setExpandedBookIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // 検索フィルター
+  const handleSaveInline = async (id: string, field: string, value: string) => {
+    const updateData: Record<string, any> = { [field]: value };
+    if (field === "title") {
+      updateData.sort_title = value;
+    }
+
+    const { error } = await supabase
+      .from("books")
+      .update(updateData)
+      .eq("id", id);
+
+    if (error) {
+      alert("保存に失敗しました: " + error.message);
+    } else {
+      setBooks(books.map((b) => (b.id === id ? { ...b, ...updateData } : b)));
+    }
+    setEditingField(null);
+  };
+
   const filteredBooks = books.filter((b) => {
     const q = searchQuery.toLowerCase().trim();
+    const seion = getSeionGroup(b.sort_title || b.title);
+
+    if (selectedTab !== "すべて" && seion !== selectedTab) {
+      return false;
+    }
+
     if (!q) return true;
 
     return (
@@ -140,12 +169,10 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans pb-20 relative">
-      {/* バージョン表記（一番端っこに小さく配置） */}
       <div className="absolute top-1 right-2 z-20 text-[9px] text-neutral-600 font-mono">
         {APP_VERSION}
       </div>
 
-      {/* ヘッダー */}
       <header className="sticky top-0 z-10 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800 px-4 py-3 md:px-8">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -179,7 +206,22 @@ export default function HomePage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-2 md:px-8 py-6 space-y-4">
-        {/* 検索パネル */}
+        <div className="flex items-center gap-1 overflow-x-auto pb-2">
+          {SEION_TABS.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setSelectedTab(tab)}
+              className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition cursor-pointer ${
+                selectedTab === tab
+                  ? "bg-emerald-600 text-neutral-100 shadow"
+                  : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 border border-neutral-800"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
         {isSearchOpen && (
           <div className="bg-neutral-900 border border-neutral-800 p-3 rounded space-y-2">
             <div className="relative">
@@ -195,7 +237,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* テーブル一覧 */}
         {loading ? (
           <p className="text-center text-neutral-500 py-10 text-xs">読み込み中...</p>
         ) : groupedBooksList.length === 0 ? (
@@ -226,10 +267,9 @@ export default function HomePage() {
                   lastSeionGroup = currentSeion;
 
                   return (
-                    <>
-                      {/* 五十音の小見出しセクションと見やすい区切り線 */}
+                    <React.Fragment key={group.title}>
                       {showSeionHeader && (
-                        <tr key={`seion-${currentSeion}`} className="bg-neutral-950 border-t-4 border-neutral-700">
+                        <tr className="bg-neutral-950 border-t-4 border-neutral-700">
                           <td colSpan={3} className="px-3 py-2 text-xs font-extrabold text-neutral-300 tracking-wider">
                             【 {currentSeion} 】
                           </td>
@@ -237,11 +277,10 @@ export default function HomePage() {
                       )}
 
                       <tr 
-                        key={group.title} 
                         className="hover:bg-neutral-800/50 transition cursor-pointer border-t border-neutral-800"
                         onClick={() => setExpandedTitle(isExpanded ? null : group.title)}
                       >
-                        <td className="p-3 font-medium text-neutral-100 truncate max-w-[180px] md:max-w-none">
+                        <td className="p-3 font-medium text-neutral-100 max-w-[180px] md:max-w-none">
                           <div className="truncate">{group.title}</div>
                           {group.books[0]?.series && (
                             <div className="text-[10px] text-neutral-400 flex items-center gap-1 mt-0.5 truncate">
@@ -256,7 +295,10 @@ export default function HomePage() {
                         </td>
                         <td className="p-3 text-right whitespace-nowrap">
                           <button
-                            onClick={() => setExpandedTitle(isExpanded ? null : group.title)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedTitle(isExpanded ? null : group.title);
+                            }}
                             className="px-2.5 py-1 rounded text-[11px] font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition inline-flex items-center gap-1 cursor-pointer"
                           >
                             <span>詳細</span>
@@ -265,97 +307,156 @@ export default function HomePage() {
                         </td>
                       </tr>
 
-                      {/* タイトルごとの詳細エリア */}
                       {isExpanded && (
-                        <tr key={`${group.title}-detail`} className="bg-neutral-950/90 border-b-2 border-neutral-700">
+                        <tr className="bg-neutral-950/90 border-b-2 border-neutral-700">
                           <td colSpan={3} className="p-3 md:p-4 space-y-3">
                             <div className="space-y-2">
-                              <span className="text-neutral-400 text-[11px] font-bold block border-b border-neutral-800 pb-1">
-                                詳細・情報
-                              </span>
-                              
-                              <div className="space-y-2">
-                                {group.books.map((book) => {
-                                  const isBookExpanded = !!expandedBookIds[book.id];
-                                  return (
-                                    <div 
-                                      key={book.id} 
-                                      className="bg-neutral-900 border border-neutral-800 rounded p-3 space-y-2 text-xs"
-                                    >
-                                      {/* 巻ごとの簡易バー */}
-                                      <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-mono bg-neutral-800 text-amber-300 px-2 py-0.5 rounded text-[11px] font-bold">
-                                            {book.volume ? `${book.volume}巻` : "ー"}
-                                          </span>
-                                          <span className="text-neutral-300 text-[11px]">
-                                            著者: {book.authors || "ー"}
-                                          </span>
-                                          <span className="text-neutral-400 text-[11px]">
-                                            登録日: {book.created_at ? book.created_at.split("T")[0] : "ー"}
-                                          </span>
+                              {group.books.map((book) => {
+                                const isBookExpanded = !!expandedBookIds[book.id];
+                                return (
+                                  <div 
+                                    key={book.id} 
+                                    className="bg-neutral-900 border border-neutral-800 rounded p-3 space-y-2 text-xs"
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-mono bg-neutral-800 text-amber-300 px-2 py-0.5 rounded text-[11px] font-bold">
+                                          {book.volume ? `${book.volume}巻` : "ー"}
+                                        </span>
+                                        <span className="text-neutral-300 text-[11px]">
+                                          著者: <strong className="text-neutral-100">{book.authors || "ー"}</strong>
+                                        </span>
+                                        <span className="text-neutral-400 text-[11px]">
+                                          登録日: {book.created_at ? book.created_at.split("T")[0] : "ー"}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => toggleBookDetail(book.id, e)}
+                                          className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] inline-flex items-center gap-1 transition cursor-pointer"
+                                        >
+                                          <span>情報</span>
+                                          {isBookExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                        </button>
+                                        <Link
+                                          href={`/add?id=${book.id}`}
+                                          className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] transition"
+                                        >
+                                          編集
+                                        </Link>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDelete(book.id, book.title, book.volume)}
+                                          className="p-1 bg-neutral-800 hover:bg-red-950 text-neutral-400 hover:text-red-400 rounded transition"
+                                          title="削除"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {isBookExpanded && (
+                                      <div className="mt-2 pt-2 border-t border-neutral-800 space-y-2 text-[11px] text-neutral-300 bg-neutral-950 p-2.5 rounded">
+                                        <div className="grid grid-cols-2 gap-2 pb-1 border-b border-neutral-900">
+                                          <div>
+                                            <span className="text-neutral-500 block text-[10px]">出版社</span>
+                                            {editingField?.id === book.id && editingField?.field === "publisher" ? (
+                                              <div className="flex items-center gap-1 mt-0.5">
+                                                <input
+                                                  type="text"
+                                                  value={editingField.value}
+                                                  onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                                  className="bg-neutral-900 border border-neutral-700 px-1.5 py-0.5 text-xs text-neutral-100 rounded w-full"
+                                                  autoFocus
+                                                />
+                                                <button onClick={() => handleSaveInline(book.id, "publisher", editingField.value)} className="text-emerald-400 p-1"><Check className="w-3.5 h-3.5" /></button>
+                                                <button onClick={() => setEditingField(null)} className="text-neutral-400 p-1"><X className="w-3.5 h-3.5" /></button>
+                                              </div>
+                                            ) : (
+                                              <span 
+                                                onClick={() => setEditingField({ id: book.id, field: "publisher", value: book.publisher || "" })}
+                                                className="text-neutral-200 cursor-pointer hover:underline"
+                                                title="クリックしてその場で変更"
+                                              >
+                                                {book.publisher || "ー"} ✏️
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div>
+                                            <span className="text-neutral-500 block text-[10px]">発売日</span>
+                                            <span className="font-mono text-neutral-200">{book.release_date || "ー"}</span>
+                                          </div>
                                         </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <button
-                                            type="button"
-                                            onClick={(e) => toggleBookDetail(book.id, e)}
-                                            className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] inline-flex items-center gap-1 transition cursor-pointer"
-                                          >
-                                            <span>情報</span>
-                                            {isBookExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                                          </button>
-                                          <Link
-                                            href={`/add?id=${book.id}`}
-                                            className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] transition"
-                                          >
-                                            編集
-                                          </Link>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleDelete(book.id, book.title, book.volume)}
-                                            className="p-1 bg-neutral-800 hover:bg-red-950 text-neutral-400 hover:text-red-400 rounded transition"
-                                            title="削除"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </button>
+
+                                        <div>
+                                          <span className="text-neutral-500 block text-[10px]">ISBN</span>
+                                          <span className="font-mono text-neutral-200">{book.isbn || "ー"}</span>
+                                        </div>
+
+                                        <div>
+                                          <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">あらすじ</span>
+                                          {editingField?.id === book.id && editingField?.field === "summary" ? (
+                                            <div className="space-y-1">
+                                              <textarea
+                                                rows={2}
+                                                value={editingField.value}
+                                                onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                                className="bg-neutral-900 border border-neutral-700 p-1.5 text-xs text-neutral-100 rounded w-full"
+                                                autoFocus
+                                              />
+                                              <div className="flex gap-1 justify-end">
+                                                <button onClick={() => handleSaveInline(book.id, "summary", editingField.value)} className="bg-emerald-700 text-white px-2 py-0.5 rounded text-[10px]">保存</button>
+                                                <button onClick={() => setEditingField(null)} className="bg-neutral-800 text-neutral-300 px-2 py-0.5 rounded text-[10px]">キャンセル</button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <p 
+                                              onClick={() => setEditingField({ id: book.id, field: "summary", value: book.summary || "" })}
+                                              className="text-neutral-300 leading-relaxed bg-neutral-900 p-2 rounded border border-neutral-800 cursor-pointer hover:border-neutral-600 transition"
+                                              title="クリックしてその場で編集"
+                                            >
+                                              {book.summary || "あらすじがありません（クリックして追加）"} ✏️
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div>
+                                          <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">メモ</span>
+                                          {editingField?.id === book.id && editingField?.field === "memo" ? (
+                                            <div className="space-y-1">
+                                              <textarea
+                                                rows={2}
+                                                value={editingField.value}
+                                                onChange={(e) => setEditingField({ ...editingField, value: e.target.value })}
+                                                className="bg-neutral-900 border border-neutral-700 p-1.5 text-xs text-neutral-100 rounded w-full"
+                                                autoFocus
+                                              />
+                                              <div className="flex gap-1 justify-end">
+                                                <button onClick={() => handleSaveInline(book.id, "memo", editingField.value)} className="bg-emerald-700 text-white px-2 py-0.5 rounded text-[10px]">保存</button>
+                                                <button onClick={() => setEditingField(null)} className="bg-neutral-800 text-neutral-300 px-2 py-0.5 rounded text-[10px]">キャンセル</button>
+                                              </div>
+                                            </div>
+                                          ) : (
+                                            <p 
+                                              onClick={() => setEditingField({ id: book.id, field: "memo", value: book.memo || "" })}
+                                              className="text-neutral-300 italic bg-neutral-900 p-2 rounded border border-neutral-800 cursor-pointer hover:border-neutral-600 transition"
+                                              title="クリックしてその場で編集"
+                                            >
+                                              {book.memo || "メモがありません（クリックして追加）"} ✏️
+                                            </p>
+                                          )}
                                         </div>
                                       </div>
-
-                                      {/* 巻ごとの個別情報（開閉式） */}
-                                      {isBookExpanded && (
-                                        <div className="mt-2 pt-2 border-t border-neutral-800 space-y-2 text-[11px] text-neutral-300 bg-neutral-950 p-2.5 rounded">
-                                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                            <div>出版社: <span className="text-neutral-200">{book.publisher || "ー"}</span></div>
-                                            <div>ISBN: <span className="font-mono text-neutral-200">{book.isbn || "ー"}</span></div>
-                                            <div>発売日: <span className="font-mono text-neutral-200">{book.release_date || "ー"}</span></div>
-                                          </div>
-                                          {book.summary && (
-                                            <div>
-                                              <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">あらすじ</span>
-                                              <p className="text-neutral-300 leading-relaxed bg-neutral-900 p-2 rounded border border-neutral-800">
-                                                {book.summary}
-                                              </p>
-                                            </div>
-                                          )}
-                                          {book.memo && (
-                                            <div>
-                                              <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">メモ</span>
-                                              <p className="text-neutral-300 italic bg-neutral-900 p-2 rounded border border-neutral-800">
-                                                {book.memo}
-                                              </p>
-                                            </div>
-                                          )}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           </td>
                         </tr>
                       )}
-                    </>
+                    </React.Fragment>
                   );
                 })}
               </tbody>
