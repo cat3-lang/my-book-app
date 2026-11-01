@@ -8,7 +8,7 @@ import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Sea
 import { Html5Qrcode } from "html5-qrcode";
 
 // 🔄 デプロイ確認用のバージョン番号
-const APP_VERSION = "v1.0.10";
+const APP_VERSION = "v1.0.11";
 
 type ExistingBookInfo = {
   id: string;
@@ -21,6 +21,7 @@ type ExistingBookInfo = {
   authors?: string | null;
   publisher?: string | null;
   summary?: string | null;
+  release_date?: string | null;
 };
 
 export default function AddBookPage() {
@@ -37,6 +38,7 @@ export default function AddBookPage() {
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   const [summary, setSummary] = useState(""); // あらすじ
   const [memo, setMemo] = useState(""); // メモ
+  const [releaseDate, setReleaseDate] = useState(""); // 発売日
 
   const [registeredDate, setRegisteredDate] = useState("");
 
@@ -66,6 +68,7 @@ export default function AddBookPage() {
     setPublisher("");
     setSummary("");
     setMemo("");
+    setReleaseDate("");
     setExistingBook(null);
     setCheckMessage(null);
   };
@@ -87,12 +90,11 @@ export default function AddBookPage() {
     setErrorMessage("");
     const { data: foundData } = await supabase
       .from("books")
-      .select("id, title, created_at, status, memo, volume, series, authors, publisher, summary")
+      .select("id, title, created_at, status, memo, volume, series, authors, publisher, summary, release_date")
       .eq("isbn", cleanIsbn)
       .single();
 
     if (foundData) {
-      // かぶっている場合：情報をフォームに自動反映
       setExistingBook(foundData);
       setTitle(foundData.title || "");
       setSortTitle(foundData.title || "");
@@ -103,10 +105,10 @@ export default function AddBookPage() {
       if (foundData.series) setSeries(foundData.series);
       if (foundData.authors) setAuthors(foundData.authors);
       if (foundData.publisher) setPublisher(foundData.publisher);
+      if (foundData.release_date) setReleaseDate(foundData.release_date);
 
       setCheckMessage("⚠️ すでに登録されています（情報をフォームに反映しました）");
     } else {
-      // かぶっていない場合
       setExistingBook(null);
       setCheckMessage("✅ 未登録です（かぶりなし）");
     }
@@ -179,20 +181,25 @@ export default function AddBookPage() {
 
     const cleanIsbn = isbn.trim();
 
+    // 送信データオブジェクト
+    const bookData = {
+      title: title.trim(),
+      sort_title: sortTitle.trim() || title.trim(),
+      volume: volume.trim() || null,
+      series: series.trim() || null,
+      authors: authors.trim() || null,
+      publisher: publisher.trim() || null,
+      isbn: cleanIsbn || null,
+      status: status,
+      summary: summary.trim() || null,
+      memo: memo.trim() || null,
+      release_date: releaseDate || null,
+    };
+
     if (existingBook) {
       const { error } = await supabase
         .from("books")
-        .update({
-          title: title.trim(),
-          sort_title: sortTitle.trim() || title.trim(),
-          volume: volume.trim() || null,
-          series: series.trim() || null,
-          authors: authors.trim() || null,
-          publisher: publisher.trim() || null,
-          status: status,
-          summary: summary.trim() || null,
-          memo: memo.trim() || null,
-        })
+        .update(bookData)
         .eq("id", existingBook.id);
 
       if (error) {
@@ -209,17 +216,8 @@ export default function AddBookPage() {
     } else {
       const { error } = await supabase.from("books").insert([
         {
-          title: title.trim(),
-          sort_title: sortTitle.trim() || title.trim(),
-          volume: volume.trim() || null,
-          series: series.trim() || null,
-          authors: authors.trim() || null,
-          publisher: publisher.trim() || null,
-          isbn: cleanIsbn || null,
-          status: status,
-          summary: summary.trim() || null,
+          ...bookData,
           created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
-          memo: memo.trim() || null,
         },
       ]);
 
@@ -471,16 +469,30 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
-                <Calendar className="w-3 h-3" /> 登録日
-              </label>
-              <input
-                type="date"
-                value={registeredDate}
-                onChange={(e) => setRegisteredDate(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
-              />
+            {/* 日付関連（登録日 & 発売日） */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3" /> 登録日
+                </label>
+                <input
+                  type="date"
+                  value={registeredDate}
+                  onChange={(e) => setRegisteredDate(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3" /> 発売日
+                </label>
+                <input
+                  type="date"
+                  value={releaseDate}
+                  onChange={(e) => setReleaseDate(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
+                />
+              </div>
             </div>
 
             {/* あらすじ欄 */}
