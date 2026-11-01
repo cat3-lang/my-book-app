@@ -1,26 +1,36 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #EFE9D9;
+  --foreground: #3A3223;
 }
 
 @theme inline {
+  {/* オールドペーパーテーマのカスタムカラー登録 */}
+  --color-paper-bg: #EFE9D9;
+  --color-paper-card: #E2DAC6;
+  --color-paper-sub: #D4CBB5;
+  --color-paper-inner: #F6F2E8;
+
+  --color-paper-text-main: #211C13;
+  --color-paper-text-body: #3A3223;
+  --color-paper-text-sub: #6E624F;
+  --color-paper-text-muted: #8C7E6A;
+
+  --color-paper-border: #C4BAA3;
+  --color-paper-border-dark: #B5AB94;
+
+  --color-paper-caramel: #8C5E3C;
+  --color-paper-danger: #A64B4B;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-geist-sans, Arial, Helvetica, sans-serif);
+  --font-mono: var(--font-geist-mono, monospace);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
 }
