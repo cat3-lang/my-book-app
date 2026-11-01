@@ -11,8 +11,9 @@ export async function GET(request: Request) {
   const cleanIsbn = isbn.replace(/[^0-9X]/gi, "").trim();
 
   try {
-    // 1. 国立国会図書館 (NDL API)
-    const ndlUrl = `https://iss.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
+    // 1. 国立国会図書館サーチ (NDL OpenSearch API) 【最優先】
+    // 正式なエンドポイントURLを使用
+    const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
     const ndlRes = await fetch(ndlUrl, {
       headers: {
         "User-Agent": "BookManagerApp/1.0 (Family Book Manager)",
@@ -21,49 +22,67 @@ export async function GET(request: Request) {
 
     if (ndlRes.ok) {
       const xmlText = await ndlRes.text();
+
+      // 各項目をXMLタグ（名前空間含む）から正規表現で安全に抽出
       const titleMatch = xmlText.match(/<title>(.*?)<\/title>/);
-      const authorMatch = xmlText.match(/<author>(.*?)<\/author>/);
-      const publisherMatch = xmlText.match(/<publisher>(.*?)<\/publisher>/);
-      const dateMatch = xmlText.match(/<pubDate>(.*?)<\/pubDate>/) || xmlText.match(/<date>(.*?)<\/date>/);
+      const creatorMatch = xmlText.match(/<dc:creator>(.*?)<\/dc:creator>/);
+      const publisherMatch = xmlText.match(/<dc:publisher>(.*?)<\/dc:publisher>/);
+      
+      // 発売日: dcterms:issued または dc:date から取得
+      const issuedMatch = xmlText.match(/<dcterms:issued[^>]*>(.*?)<\/dcterms:issued>/);
+      const dateMatch = xmlText.match(/<dc:date[^>]*>(.*?)<\/dc:date>/);
+      const rawDate = (issuedMatch ? issuedMatch[1] : null) || (dateMatch ? dateMatch[1] : null) || "";
+
       const descMatch = xmlText.match(/<description>(.*?)<\/description>/);
 
       if (titleMatch && titleMatch[1]) {
-        let rawTitle = titleMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1");
-        
-        // タイトルから巻数の自動抽出 (例: "〇〇 (2巻)" や "〇〇 第2巻" など)
+        let rawTitle = titleMatch[1]
+          .replace(/<\/?[^>]+(>|$)/g, "")
+          .replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1")
+          .trim();
+
+        // 簡易的な巻数抽出の正規表現
         let extractedVolume = "";
-        const volMatch = rawTitle.match(/(?:\/|第)\s*([0-9０-９一二三四五六七八九十]+)\s*巻/) || rawTitle.match(/\[([0-9０-９一二三四五六七八九十]+)巻\]/);
-        if (volMatch) {
-          extractedVolume = volMatch[1];
+        const volumeMatch = rawTitle.match(/(?:第?\s*(\d+)\s*巻|\(\s*(\d+)\s*\)|\[\s*(\d+)\s*\]|\s+(\d+)\s*$)/);
+        if (volumeMatch) {
+          extractedVolume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3] || volumeMatch[4];
         }
 
-        let releaseDate = "";
-        if (dateMatch && dateMatch[1]) {
-          const raw = dateMatch[1].replace(/[^0-9]/g, "");
-          if (raw.length >= 8) {
-            releaseDate = `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
-          } else if (raw.length === 4) {
-            releaseDate = `${raw}-01-01`;
+        // 発売日の整形 (YYYY-MM-DD 形式に統一)
+        let formattedDate = "";
+        if (rawDate) {
+          const digits = rawDate.match(/\d+/g);
+          if (digits && digits.length >= 1) {
+            const year = digits[0];
+            const month = digits[1] ? digits[1].padStart(2, "0") : "01";
+            const day = digits[2] ? digits[2].padStart(2, "0") : "01";
+            formattedDate = `${year}-${month}-${day}`;
           }
         }
 
-        const cleanAuthor = authorMatch ? authorMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1") : "";
-        const cleanPublisher = publisherMatch ? publisherMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1") : "";
-        const cleanDesc = descMatch ? descMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1") : "";
+        const cleanCreator = creatorMatch 
+          ? creatorMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
+          : "";
+        const cleanPublisher = publisherMatch 
+          ? publisherMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
+          : "";
+        const cleanDesc = descMatch 
+          ? descMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
+          : "";
 
         return NextResponse.json({
           success: true,
           title: rawTitle,
           volume: extractedVolume,
-          authors: cleanAuthor,
+          authors: cleanCreator,
           publisher: cleanPublisher,
-          releaseDate: releaseDate,
+          releaseDate: formattedDate,
           summary: cleanDesc,
         });
       }
     }
 
-    // 2. OpenBD (フォールバック)
+    // 2. OpenBD API 【フォールバック】
     const openBdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
     if (openBdRes.ok) {
       const data = await openBdRes.json();
