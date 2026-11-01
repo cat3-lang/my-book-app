@@ -78,43 +78,18 @@ export default function AddBookPage() {
         return;
       }
 
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(data.xmlText, "text/xml");
-      const record = xmlDoc.querySelector("record");
-
-      if (!record) {
-        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
-        setFetchingApi(false);
-        return;
-      }
-
-      const getText = (tag: string) => record.getElementsByTagName(tag)[0]?.textContent?.trim() || "";
-      const getTexts = (tag: string) => Array.from(record.getElementsByTagName(tag)).map(el => el.textContent?.trim() || "");
-
-      const fetchedTitle = getText("dc:title");
-      const fetchedTitleTranscription = getText("dcndl:titleTranscription");
-      const fetchedSeriesTitle = getText("dcndl:seriesTitle");
-      const rawCreator = getText("dc:creator");
-      const fetchedPublisher = getTexts("dcterms:publisher").join(" / ").replace(/\s*\(.*?\)/g, "").trim();
+      setTitle(data.title || "");
       
-      const identifiers = getTexts("dc:identifier");
-      const foundNdlUrl = identifiers.find(id => id.startsWith("http://ndl.go.jp") || id.startsWith("https://ndlsearch.ndl.go.jp")) || "";
-
-      // 著者名の整形
-      const cleanedAuthor = rawCreator.replace(/\s*(著|編|監修|絵|原作|著書).*$/, "").trim();
-
-      setTitle(fetchedTitle);
-      
-      if (fetchedTitleTranscription) {
-        setSortTitle(hiraganaToKatakana(fetchedTitleTranscription));
+      if (data.titleTranscription) {
+        setSortTitle(hiraganaToKatakana(data.titleTranscription));
       } else {
-        setSortTitle(hiraganaToKatakana(fetchedTitle));
+        setSortTitle(hiraganaToKatakana(data.title || ""));
       }
 
-      setSeries(fetchedSeriesTitle);
-      setAuthors(cleanedAuthor);
-      setPublisher(fetchedPublisher);
-      if (foundNdlUrl) setNdlUrl(foundNdlUrl);
+      setSeries(data.seriesTitle || "");
+      setAuthors(data.creator || "");
+      setPublisher(data.publisher || "");
+      if (data.ndlUrl) setNdlUrl(data.ndlUrl);
 
       setErrorMessage("※国会図書館から情報を取得しました。");
 
