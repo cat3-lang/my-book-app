@@ -4,11 +4,11 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
 // 🔄 デプロイ確認用のバージョン番号
-const APP_VERSION = "v1.0.9";
+const APP_VERSION = "v1.0.10";
 
 type ExistingBookInfo = {
   id: string;
@@ -20,6 +20,7 @@ type ExistingBookInfo = {
   series?: string | null;
   authors?: string | null;
   publisher?: string | null;
+  summary?: string | null;
 };
 
 export default function AddBookPage() {
@@ -34,7 +35,9 @@ export default function AddBookPage() {
   const [authors, setAuthors] = useState("");
   const [publisher, setPublisher] = useState(""); 
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
-  
+  const [summary, setSummary] = useState(""); // あらすじ
+  const [memo, setMemo] = useState(""); // メモ
+
   const [registeredDate, setRegisteredDate] = useState("");
 
   useEffect(() => {
@@ -42,12 +45,11 @@ export default function AddBookPage() {
     setRegisteredDate(todayStr);
   }, []);
 
-  const [memo, setMemo] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
-  const [checkMessage, setCheckMessage] = useState<string | null>(null); // 確認ボタンの結果メッセージ
+  const [checkMessage, setCheckMessage] = useState<string | null>(null);
 
   // カメラ関連の状態
   const [isScanning, setIsScanning] = useState(false);
@@ -62,6 +64,7 @@ export default function AddBookPage() {
     setSeries("");
     setAuthors("");
     setPublisher("");
+    setSummary("");
     setMemo("");
     setExistingBook(null);
     setCheckMessage(null);
@@ -84,7 +87,7 @@ export default function AddBookPage() {
     setErrorMessage("");
     const { data: foundData } = await supabase
       .from("books")
-      .select("id, title, created_at, status, memo, volume, series, authors, publisher")
+      .select("id, title, created_at, status, memo, volume, series, authors, publisher, summary")
       .eq("isbn", cleanIsbn)
       .single();
 
@@ -95,6 +98,7 @@ export default function AddBookPage() {
       setSortTitle(foundData.title || "");
       setStatus(foundData.status || "持っている");
       setMemo(foundData.memo || "");
+      setSummary(foundData.summary || "");
       if (foundData.volume) setVolume(foundData.volume);
       if (foundData.series) setSeries(foundData.series);
       if (foundData.authors) setAuthors(foundData.authors);
@@ -186,6 +190,7 @@ export default function AddBookPage() {
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
           status: status,
+          summary: summary.trim() || null,
           memo: memo.trim() || null,
         })
         .eq("id", existingBook.id);
@@ -210,9 +215,9 @@ export default function AddBookPage() {
           series: series.trim() || null,
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
-          image_link: null,
           isbn: cleanIsbn || null,
           status: status,
+          summary: summary.trim() || null,
           created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
           memo: memo.trim() || null,
         },
@@ -356,7 +361,6 @@ export default function AddBookPage() {
                 </div>
               </div>
 
-              {/* ISBN入力欄 ＋ 「確認ボタン」 ＋ 「自動更新ボタン（デザインのみ）」 */}
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -383,7 +387,6 @@ export default function AddBookPage() {
                 </button>
               </div>
 
-              {/* 確認ボタンの結果メッセージ */}
               {checkMessage && (
                 <div className={`mt-2 p-2.5 text-xs rounded border ${
                   existingBook 
@@ -480,10 +483,26 @@ export default function AddBookPage() {
               />
             </div>
 
+            {/* あらすじ欄 */}
+            <div>
+              <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
+                <FileText className="w-3 h-3" /> あらすじ
+              </label>
+              <textarea
+                rows={3}
+                placeholder="本のあらすじや内容紹介など"
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
+              />
+            </div>
+
+            {/* メモ欄 */}
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1">メモ（キーワード検索に活用できます）</label>
               <textarea
                 rows={2}
+                placeholder="個人の感想やメモなど"
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
                 className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
