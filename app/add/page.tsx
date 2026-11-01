@@ -39,7 +39,7 @@ export default function AddBookPage() {
   const [sortTitle, setSortTitle] = useState("");
   const [series, setSeries] = useState("");
   const [authors, setAuthors] = useState("");
-  const [publisher, setPublisher] = useState("");
+  const [publisher, setPublisher] = useState(""); // 発行社
   const [publishedDate, setPublishedDate] = useState("");
   const [imageLink, setImageLink] = useState("");
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
@@ -59,16 +59,19 @@ export default function AddBookPage() {
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
 
-  // モーダル・トリミング用ステート
-  const [showZoomModal, setShowZoomModal] = useState(false);
-  const [imageFitMode, setImageFitMode] = useState<"cover" | "contain">("cover");
+  // トリミング・拡大調整用ステート
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [imageFitMode, setImageFitMode] = useState<"cover" | "contain">("cover"); // 切り抜き or 全体表示
+  const [imageScale, setImageScale] = useState(1); // 拡大倍率
+  const [imagePosX, setImagePosX] = useState(0);   // 横位置調整
+  const [imagePosY, setImagePosY] = useState(0);   // 縦位置調整
 
   const handleTitleChange = (val: string) => {
     setTitle(val);
     setSortTitle(toKatakana(val));
   };
 
-  // 三段構えハイブリッド検索（Google Books ➔ openBD ➔ 国会図書館）
+  // 国会図書館サーチを最優先としたハイブリッド検索
   const handleFetchByIsbn = async () => {
     const cleanIsbn = isbn.trim().replace(/-/g, "");
     if (!cleanIsbn) {
@@ -81,7 +84,79 @@ export default function AddBookPage() {
     setExistingBook(null);
 
     try {
-      // ── 1. Google Books API ──
+      // ── 1. 【第1優先】国会図書館サーチ (NDL) API ──
+      const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
+      const ndlRes = await fetch(ndlUrl);
+
+      if (ndlRes.ok) {
+        const xmlText = await ndlRes.text();
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+        const item = xmlDoc.getElementsByTagName("item")[0];
+
+        if (item) {
+          const titleEl = item.getElementsByTagName("title")[0];
+          const dcTitleEl = item.getElementsByTagName("dc:title")[0];
+          const creatorEl = item.getElementsByTagName("dc:creator")[0];
+          const publisherEl = item.getElementsByTagName("dc:publisher")[0];
+          const dateEl = item.getElementsByTagName("dc:date")[0];
+
+          const fetchedTitle = titleEl ? titleEl.textContent || "" : "";
+          const titleKana = dcTitleEl ? dcTitleEl.getAttribute("transcription") || "" : "";
+          const fetchedAuthor = creatorEl ? creatorEl.textContent || "" : "";
+          const fetchedPublisher = publisherEl ? publisherEl.textContent || "" : "";
+          let fetchedDate = dateEl ? dateEl.textContent || "" : "";
+          fetchedDate = fetchedDate.replace(/\./g, "-").replace(/\//g, "-");
+
+          setTitle(fetchedTitle);
+          setSortTitle(titleKana ? hiraganaToKatakana(titleKana) : toKatakana(fetchedTitle));
+          setAuthors(fetchedAuthor);
+          setPublisher(fetchedPublisher);
+          setPublishedDate(fetchedDate);
+
+          // 国会図書館は画像がないため、openBDやGoogle Booksで画像だけ追加で探す
+          try {
+            const bdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
+            const bdData = await bdRes.json();
+            if (bdData && bdData[0]?.summary?.cover) {
+              setImageLink(bdData[0].summary.cover);
+            } else {
+              const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+              const gData = await gRes.json();
+              if (gData.totalItems > 0 && gData.items) {
+                const info = gData.items[0].volumeInfo;
+                const rawImg = info.imageLinks?.thumbnail || info.imageLinks?.smallThumbnail || "";
+                if (rawImg) setImageLink(rawImg.replace("http://", "https://"));
+              }
+            }
+          } catch (imgErr) {
+            console.error("画像追加取得エラー", imgErr);
+          }
+
+          setFetchingApi(false);
+          return;
+        }
+      }
+
+      // ── 2. 【第2優先】openBD API ──
+      const bdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
+      const bdData = await bdRes.json();
+
+      if (bdData && bdData[0]) {
+        const summary = bdData[0].summary;
+        const fetchedTitle = summary.title || "";
+
+        setTitle(fetchedTitle);
+        setSortTitle(toKatakana(fetchedTitle));
+        setAuthors(summary.author || "");
+        setPublisher(summary.publisher || "");
+        setPublishedDate(summary.pubdate || "");
+        setImageLink(summary.cover || "");
+        setFetchingApi(false);
+        return;
+      }
+
+      // ── 3. 【第3優先】Google Books API ──
       const gRes = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
       const gData = await gRes.json();
 
@@ -115,61 +190,6 @@ export default function AddBookPage() {
         return;
       }
 
-      // ── 2. openBD API ──
-      const bdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
-      const bdData = await bdRes.json();
-
-      if (bdData && bdData[0]) {
-        const summary = bdData[0].summary;
-        const fetchedTitle = summary.title || "";
-
-        setTitle(fetchedTitle);
-        setSortTitle(toKatakana(fetchedTitle));
-        setAuthors(summary.author || "");
-        setPublisher(summary.publisher || "");
-        setPublishedDate(summary.pubdate || "");
-        setImageLink(summary.cover || "");
-        setFetchingApi(false);
-        return;
-      }
-
-      // ── 3. 国会図書館サーチ (NDL) API ──
-      const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
-      const ndlRes = await fetch(ndlUrl);
-
-      if (ndlRes.ok) {
-        const xmlText = await ndlRes.text();
-        const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-        const item = xmlDoc.getElementsByTagName("item")[0];
-
-        if (item) {
-          const titleEl = item.getElementsByTagName("title")[0];
-          const dcTitleEl = item.getElementsByTagName("dc:title")[0];
-          const creatorEl = item.getElementsByTagName("dc:creator")[0];
-          const publisherEl = item.getElementsByTagName("dc:publisher")[0];
-          const dateEl = item.getElementsByTagName("dc:date")[0];
-
-          const fetchedTitle = titleEl ? titleEl.textContent || "" : "";
-          const titleKana = dcTitleEl ? dcTitleEl.getAttribute("transcription") || "" : "";
-          const fetchedAuthor = creatorEl ? creatorEl.textContent || "" : "";
-          const fetchedPublisher = publisherEl ? publisherEl.textContent || "" : "";
-          let fetchedDate = dateEl ? dateEl.textContent || "" : "";
-          fetchedDate = fetchedDate.replace(/\./g, "-").replace(/\//g, "-");
-
-          setTitle(fetchedTitle);
-          // 国会図書館の正確なフリガナがあればカタカナに変換して採用
-          setSortTitle(titleKana ? hiraganaToKatakana(titleKana) : toKatakana(fetchedTitle));
-          setAuthors(fetchedAuthor);
-          setPublisher(fetchedPublisher);
-          setPublishedDate(fetchedDate);
-          
-          setErrorMessage("※国会図書館から取得しました。表紙画像はカメラ等で追加してください。");
-          setFetchingApi(false);
-          return;
-        }
-      }
-
       setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
 
     } catch (err) {
@@ -180,7 +200,7 @@ export default function AddBookPage() {
     }
   };
 
-  // 画像選択・撮影
+  // 画像ファイル選択・撮影
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -188,6 +208,10 @@ export default function AddBookPage() {
     const reader = new FileReader();
     reader.onloadend = () => {
       setImageLink(reader.result as string);
+      setImageScale(1);
+      setImagePosX(0);
+      setImagePosY(0);
+      setShowCropModal(true); // アップロード直後にトリミング・位置調整画面を開く
     };
     reader.readAsDataURL(file);
   };
@@ -397,7 +421,7 @@ export default function AddBookPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1">出版社</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">発行社</label>
                 <input
                   type="text"
                   value={publisher}
@@ -419,7 +443,7 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 表紙画像 */}
+            {/* 表紙画像（プレビュー・トリミング調整・拡大） */}
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-medium text-neutral-400">表紙画像</label>
@@ -427,17 +451,10 @@ export default function AddBookPage() {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setImageFitMode(imageFitMode === "cover" ? "contain" : "cover")}
-                      className="text-[10px] text-neutral-400 hover:text-neutral-100 flex items-center gap-1 bg-neutral-800 px-2 py-0.5 rounded cursor-pointer"
+                      onClick={() => setShowCropModal(true)}
+                      className="text-[10px] text-neutral-300 hover:text-white flex items-center gap-1 bg-neutral-800 px-2.5 py-1 rounded cursor-pointer"
                     >
-                      <Crop className="w-3 h-3" /> トリミング切替: {imageFitMode === "cover" ? "切り抜き" : "全体表示"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowZoomModal(true)}
-                      className="text-[10px] text-neutral-400 hover:text-neutral-100 flex items-center gap-1 bg-neutral-800 px-2 py-0.5 rounded cursor-pointer"
-                    >
-                      <Maximize2 className="w-3 h-3" /> 拡大
+                      <Crop className="w-3.5 h-3.5" /> トリミング・位置調整
                     </button>
                   </div>
                 )}
@@ -446,12 +463,16 @@ export default function AddBookPage() {
               <div className="flex flex-col sm:flex-row gap-4 items-start">
                 <div 
                   className="w-20 h-28 bg-neutral-950 border border-neutral-800 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer relative group"
-                  onClick={() => imageLink && setShowZoomModal(true)}
+                  onClick={() => imageLink && setShowCropModal(true)}
                 >
                   {imageLink ? (
                     <img 
                       src={imageLink} 
                       alt="表紙プレビュー" 
+                      style={{
+                        transform: `scale(${imageScale}) translate(${imagePosX}px, ${imagePosY}px)`,
+                        transition: 'transform 0.1s ease'
+                      }}
                       className={`w-full h-full ${imageFitMode === "cover" ? "object-cover" : "object-contain"}`} 
                     />
                   ) : (
@@ -459,7 +480,7 @@ export default function AddBookPage() {
                   )}
                   {imageLink && (
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[10px]">
-                      拡大
+                      調整
                     </div>
                   )}
                 </div>
@@ -533,31 +554,94 @@ export default function AddBookPage() {
         </form>
       </main>
 
-      {/* 拡大モーダル */}
-      {showZoomModal && imageLink && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
-          <div className="absolute top-4 right-4 flex items-center gap-3">
+      {/* 画像のトリミング・位置調整・拡大モーダル */}
+      {showCropModal && imageLink && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-between p-4 pb-8">
+          <div className="w-full flex items-center justify-between max-w-md pt-2">
+            <span className="text-xs font-bold text-neutral-300">表紙のトリミング・位置調整</span>
             <button
               type="button"
-              onClick={() => setImageFitMode(imageFitMode === "cover" ? "contain" : "cover")}
-              className="px-3 py-1.5 bg-neutral-800 text-neutral-200 text-xs rounded hover:bg-neutral-700 transition"
-            >
-              表示切替: {imageFitMode === "cover" ? "切り抜き(Cover)" : "全体(Contain)"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowZoomModal(false)}
+              onClick={() => setShowCropModal(false)}
               className="p-2 bg-neutral-800 text-white rounded-full hover:bg-neutral-700 transition"
             >
-              <X className="w-6 h-6" />
+              <X className="w-5 h-5" />
             </button>
           </div>
-          <div className="max-w-md w-full h-[75vh] flex items-center justify-center overflow-hidden">
+
+          {/* トリミング枠（プレビュー） */}
+          <div className="my-auto w-40 h-56 bg-neutral-900 border-2 border-white/80 shadow-2xl flex items-center justify-center overflow-hidden relative">
             <img
               src={imageLink}
-              alt="拡大プレビュー"
-              className={`max-h-full max-w-full shadow-2xl ${imageFitMode === "cover" ? "object-cover w-full h-full" : "object-contain"}`}
+              alt="トリミング調整中"
+              style={{
+                transform: `scale(${imageScale}) translate(${imagePosX}px, ${imagePosY}px)`,
+                transition: 'transform 0.05s ease'
+              }}
+              className={`max-w-none ${imageFitMode === "cover" ? "w-full h-full object-cover" : "object-contain"}`}
             />
+          </div>
+
+          {/* 調整コントローラー */}
+          <div className="max-w-md w-full bg-neutral-900 border border-neutral-800 p-4 space-y-3 text-xs text-neutral-300">
+            <div className="flex justify-between items-center">
+              <span>表示モード:</span>
+              <button
+                type="button"
+                onClick={() => setImageFitMode(imageFitMode === "cover" ? "contain" : "cover")}
+                className="px-3 py-1 bg-neutral-800 text-neutral-100 rounded hover:bg-neutral-700 transition"
+              >
+                {imageFitMode === "cover" ? "切り抜き (Cover)" : "全体表示 (Contain)"}
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span>拡大 / 縮小:</span>
+                <span>{imageScale.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="3"
+                step="0.1"
+                value={imageScale}
+                onChange={(e) => setImageScale(parseFloat(e.target.value))}
+                className="w-full accent-neutral-100 cursor-pointer"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className="space-y-1">
+                <span>左右位置:</span>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={imagePosX}
+                  onChange={(e) => setImagePosX(parseInt(e.target.value))}
+                  className="w-full accent-neutral-100 cursor-pointer"
+                />
+              </div>
+              <div className="space-y-1">
+                <span>上下位置:</span>
+                <input
+                  type="range"
+                  min="-100"
+                  max="100"
+                  value={imagePosY}
+                  onChange={(e) => setImagePosY(parseInt(e.target.value))}
+                  className="w-full accent-neutral-100 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowCropModal(false)}
+              className="w-full mt-2 py-2.5 bg-neutral-100 text-neutral-900 font-bold rounded hover:bg-neutral-300 transition cursor-pointer"
+            >
+              調整を完了する
+            </button>
           </div>
         </div>
       )}
