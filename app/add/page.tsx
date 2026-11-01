@@ -1,526 +1,426 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText } from "lucide-react";
-import { Html5Qrcode } from "html5-qrcode";
-
-// 🔄 デプロイ確認用のバージョン番号
-const APP_VERSION = "v1.0.13";
-
-type ExistingBookInfo = {
-  id: string;
-  title: string;
-  created_at: string;
-  status: "持っている" | "欲しい";
-  memo: string | null;
-  volume?: string | null;
-  series?: string | null;
-  authors?: string | null;
-  publisher?: string | null;
-  summary?: string | null;
-  release_date?: string | null;
-};
+import { BookOpen, Search, ArrowLeft, Check, AlertCircle, Loader2 } from "lucide-react";
 
 export default function AddBookPage() {
   const router = useRouter();
 
-  // フォーム入力の状態
-  const [isbn, setIsbn] = useState("");
+  // フォームの状態
   const [title, setTitle] = useState("");
-  const [volume, setVolume] = useState(""); 
-  const [sortTitle, setSortTitle] = useState(""); 
+  const [sortTitle, setSortTitle] = useState("");
+  const [volume, setVolume] = useState("");
   const [series, setSeries] = useState("");
   const [authors, setAuthors] = useState("");
-  const [publisher, setPublisher] = useState(""); 
+  const [publisher, setPublisher] = useState("");
+  const [isbn, setIsbn] = useState("");
+  const [releaseDate, setReleaseDate] = useState("");
+  const [summary, setSummary] = useState("");
+  const [memo, setMemo] = useState("");
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
-  const [summary, setSummary] = useState(""); 
-  const [memo, setMemo] = useState(""); 
-  const [releaseDate, setReleaseDate] = useState(""); 
 
-  const [registeredDate, setRegisteredDate] = useState("");
+  // 自動取得の状態
+  const [isbnInput, setIsbnInput] = useState("");
+  const [fetching, setFetching] = useState(false);
+  const [fetchMsg, setFetchMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    const todayStr = new Date().toISOString().split("T")[0];
-    setRegisteredDate(todayStr);
-  }, []);
+  // 1. 国立国会図書館 (NDL API) からの書誌情報取得処理
+  const fetchFromNDL = async (cleanIsbn: string) => {
+    const ndlUrl = `https://iss.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
+    const res = await fetch(ndlUrl);
+    if (!res.ok) return null;
 
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
-  const [successMessage, setSuccessMessage] = useState("");
-  const [checkMessage, setCheckMessage] = useState<string | null>(null);
+    const xmlText = await res.text();
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+    const item = xmlDoc.querySelector("item");
 
-  // カメラ関連の状態
-  const [isScanning, setIsScanning] = useState(false);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
+    if (!item) return null;
 
-  // フォームクリア
-  const clearForm = () => {
-    setIsbn("");
-    setTitle("");
-    setVolume("");
-    setSortTitle("");
-    setSeries("");
-    setAuthors("");
-    setPublisher("");
-    setSummary("");
-    setMemo("");
-    setReleaseDate("");
-    setExistingBook(null);
-    setCheckMessage(null);
-  };
+    const fetchedTitle = item.querySelector("title")?.textContent || "";
+    const fetchedAuthor = item.querySelector("author")?.textContent || "";
+    const fetchedPublisher = item.querySelector("publisher")?.textContent || "";
+    const fetchedPubDate = item.querySelector("pubDate")?.textContent || item.querySelector("date")?.textContent || "";
+    const fetchedDescription = item.querySelector("description")?.textContent || "";
 
-  const handleTitleChange = (val: string) => {
-    setTitle(val);
-    setSortTitle(val);
-  };
-
-  // 🔍 重複確認（確認ボタンの処理）
-  const handleCheckIsbn = async () => {
-    const cleanIsbn = isbn.trim();
-    if (!cleanIsbn) {
-      setCheckMessage("ISBNを入力してください。");
-      setExistingBook(null);
-      return;
-    }
-
-    setErrorMessage("");
-    const { data: foundData, error } = await supabase
-      .from("books")
-      .select("id, title, created_at, status, memo, volume, series, authors, publisher, summary, release_date")
-      .eq("isbn", cleanIsbn)
-      .maybeSingle();
-
-    if (error) {
-      console.error(error);
-      setCheckMessage("検索中にエラーが発生しました。");
-      return;
-    }
-
-    if (foundData) {
-      setExistingBook(foundData);
-      setTitle(foundData.title || "");
-      setSortTitle(foundData.title || "");
-      setStatus(foundData.status || "持っている");
-      setMemo(foundData.memo || "");
-      setSummary(foundData.summary || "");
-      if (foundData.volume) setVolume(foundData.volume);
-      if (foundData.series) setSeries(foundData.series);
-      if (foundData.authors) setAuthors(foundData.authors);
-      if (foundData.publisher) setPublisher(foundData.publisher);
-      if (foundData.release_date) setReleaseDate(foundData.release_date);
-
-      setCheckMessage("⚠️ すでに登録されています（情報をフォームに反映しました）");
-    } else {
-      setExistingBook(null);
-      setCheckMessage("✅ 未登録です");
-    }
-  };
-
-  // カメラを起動してバーコード読み取りを開始する
-  const startScanner = async () => {
-    setIsScanning(true);
-    setErrorMessage("");
-    setCheckMessage(null);
-
-    setTimeout(async () => {
-      try {
-        const html5QrCode = new Html5Qrcode("reader");
-        scannerRef.current = html5QrCode;
-
-        await html5QrCode.start(
-          { facingMode: "environment" },
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 100 },
-          },
-          (decodedText) => {
-            if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
-              setIsbn(decodedText);
-              stopScanner();
-            }
-          },
-          () => {}
-        );
-      } catch (err) {
-        console.error("Camera start error:", err);
-        setErrorMessage("カメラを起動できませんでした。権限が許可されているか確認してください。");
-        setIsScanning(false);
-      }
-    }, 100);
-  };
-
-  const stopScanner = async () => {
-    if (scannerRef.current) {
-      try {
-        if (scannerRef.current.isScanning) {
-          await scannerRef.current.stop();
+    // 発売日フォーマット調整 (YYYY-MM-DD)
+    let formattedDate = "";
+    if (fetchedPubDate) {
+      const match = fetchedPubDate.match(/\d{4}-\d{2}-\d{2}/) || fetchedPubDate.match(/\d{4}\d{2}\d{2}/);
+      if (match) {
+        const raw = match[0].replace(/-/g, "");
+        if (raw.length === 8) {
+          formattedDate = `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
         }
-        scannerRef.current.clear();
-      } catch (err) {
-        console.error("Failed to stop scanner", err);
       }
-      scannerRef.current = null;
     }
-    setIsScanning(false);
+
+    return {
+      title: fetchedTitle,
+      authors: fetchedAuthor,
+      publisher: fetchedPublisher,
+      releaseDate: formattedDate,
+      summary: fetchedDescription,
+      source: "国立国会図書館 (NDL)",
+    };
   };
 
-  useEffect(() => {
-    return () => {
-      stopScanner();
-    };
-  }, []);
+  // 2. OpenBD からの取得（フォールバック用）
+  const fetchFromOpenBD = async (cleanIsbn: string) => {
+    const res = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !data[0]) return null;
 
-  // 登録または更新の実行
+    const b = data[0].summary;
+    return {
+      title: b?.title || "",
+      authors: b?.author || "",
+      publisher: b?.publisher || "",
+      releaseDate: b?.pubdate || "",
+      summary: data[0].summary?.gesch || data[0].summary?.description || "",
+      source: "OpenBD",
+    };
+  };
+
+  // 3. Google Books からの取得（最終フォールバック用）
+  const fetchFromGoogleBooks = async (cleanIsbn: string) => {
+    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.items || data.items.length === 0) return null;
+
+    const info = data.items[0].volumeInfo;
+    return {
+      title: info.title || "",
+      authors: info.authors ? info.authors.join(", ") : "",
+      publisher: info.publisher || "",
+      releaseDate: info.publishedDate || "",
+      summary: info.description || "",
+      source: "Google Books",
+    };
+  };
+
+  // ISBN自動取得ハンドラー（国会図書館優先）
+  const handleAutoFetch = async () => {
+    const cleanIsbn = isbnInput.replace(/[^0-9X]/gi, "").trim();
+    if (!cleanIsbn || (cleanIsbn.length !== 10 && cleanIsbn.length !== 13)) {
+      setFetchMsg({ type: "error", text: "13桁または10桁のISBNコード（半角数字）を入力してください。" });
+      return;
+    }
+
+    setFetching(true);
+    setFetchMsg(null);
+
+    try {
+      // 国立国会図書館を優先検索
+      let bookData = await fetchFromNDL(cleanIsbn);
+
+      // ヒットしない場合は OpenBD
+      if (!bookData) {
+        bookData = await fetchFromOpenBD(cleanIsbn);
+      }
+
+      // さらにヒットしない場合は Google Books
+      if (!bookData) {
+        bookData = await fetchFromGoogleBooks(cleanIsbn);
+      }
+
+      if (bookData) {
+        if (bookData.title) setTitle(bookData.title);
+        if (bookData.authors) setAuthors(bookData.authors);
+        if (bookData.publisher) setPublisher(bookData.publisher);
+        if (bookData.releaseDate) setReleaseDate(bookData.releaseDate);
+        if (bookData.summary) setSummary(bookData.summary);
+        setIsbn(cleanIsbn);
+
+        setFetchMsg({
+          type: "success",
+          text: `【${bookData.source}】から書籍情報を取得し、フォームに自動入力しました！`,
+        });
+      } else {
+        setFetchMsg({
+          type: "error",
+          text: "該当する書籍情報が見つかりませんでした。手動でご入力ください。",
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      setFetchMsg({ type: "error", text: "通信エラーが発生しました。ネットワーク状況をご確認ください。" });
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  // DB保存処理
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
-      alert("タイトルは必須です。");
+      alert("タイトルを入力してください。");
       return;
     }
 
-    setLoading(true);
-    setErrorMessage("");
+    setSubmitting(true);
 
-    const cleanIsbn = isbn.trim();
-
-    const bookData = {
+    const newBook = {
       title: title.trim(),
       sort_title: sortTitle.trim() || title.trim(),
       volume: volume.trim() || null,
       series: series.trim() || null,
       authors: authors.trim() || null,
       publisher: publisher.trim() || null,
-      isbn: cleanIsbn || null,
-      status: status,
+      isbn: isbn.trim() || null,
+      release_date: releaseDate || null,
       summary: summary.trim() || null,
       memo: memo.trim() || null,
-      release_date: releaseDate || null,
+      status: status,
     };
 
-    if (existingBook) {
-      const { error } = await supabase
-        .from("books")
-        .update(bookData)
-        .eq("id", existingBook.id);
+    const { error } = await supabase.from("books").insert([newBook]);
 
-      if (error) {
-        console.error(error);
-        setErrorMessage(`更新に失敗しました: ${error.message}`);
-        setLoading(false);
-      } else {
-        setSuccessMessage("既存のデータを更新しました！");
-        clearForm();
-        setTimeout(() => {
-          router.push(status === "持っている" ? "/" : "/wants");
-        }, 800);
-      }
+    if (error) {
+      alert("登録に失敗しました: " + error.message);
+      setSubmitting(false);
     } else {
-      const { error } = await supabase.from("books").insert([
-        {
-          ...bookData,
-          created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
-        },
-      ]);
-
-      if (error) {
-        console.error(error);
-        if (error.code === "23505") {
-          setErrorMessage("このISBNの本はすでに登録されています。");
-        } else {
-          setErrorMessage(`登録に失敗しました: ${error.message} (エラーコード: ${error.code})`);
-        }
-        setLoading(false);
+      alert(`「${title}」を登録しました！`);
+      if (status === "欲しい") {
+        router.push("/wants");
       } else {
-        setSuccessMessage("登録が完了しました！");
-        clearForm();
-        setTimeout(() => {
-          router.push(status === "持っている" ? "/" : "/wants");
-        }, 800);
+        router.push("/");
       }
     }
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans pb-20">
-      <header className="sticky top-0 z-10 bg-neutral-950/85 backdrop-blur-md border-b border-neutral-800 px-4 py-4 md:px-8">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
+    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-20">
+      {/* ヘッダー */}
+      <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-4 py-3 md:px-8">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
           <Link
             href="/"
-            className="flex items-center gap-1.5 text-sm text-neutral-400 hover:text-neutral-100 transition"
+            className="text-xs font-bold text-paper-text-main flex items-center gap-1 bg-paper-sub px-3 py-1.5 border border-paper-border hover:bg-paper-border transition"
           >
-            <ArrowLeft className="w-4 h-4" />
-            <span>本棚に戻る</span>
+            <ArrowLeft className="w-4 h-4" /> 戻る
           </Link>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-bold tracking-wider text-neutral-100">本を登録する</h1>
-            <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded font-mono">
-              {APP_VERSION}
-            </span>
-          </div>
-          <div className="w-16" />
+          <h1 className="text-sm font-bold tracking-wider text-paper-text-main flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-paper-caramel" /> 本の新規登録
+          </h1>
         </div>
       </header>
 
-      {/* カメラ読み取りモーダル */}
-      {isScanning && (
-        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
-          <div className="w-full max-w-md bg-neutral-900 border border-neutral-800 p-4 rounded-lg relative">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-sm font-bold text-neutral-200">バーコードを枠内に合わせてください</h2>
-              <button
-                type="button"
-                onClick={stopScanner}
-                className="p-1 text-neutral-400 hover:text-neutral-100 bg-neutral-800 rounded-full"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div id="reader" className="w-full overflow-hidden rounded bg-black"></div>
-            <p className="text-xs text-neutral-400 text-center mt-3">
-              本の裏表紙にある「978」から始まるバーコードをスキャンします
-            </p>
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        {/* ISBN自動取得エリア */}
+        <div className="bg-paper-card border border-paper-border p-4 md:p-5 rounded-none space-y-3 shadow-sm">
+          <h2 className="text-xs font-bold text-paper-text-main flex items-center gap-1.5 border-b border-paper-border pb-2">
+            <Search className="w-4 h-4 text-paper-caramel" /> ISBNバーコード自動取得（国会図書館優先）
+          </h2>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="例: 9784041109229（13桁数字）"
+              value={isbnInput}
+              onChange={(e) => setIsbnInput(e.target.value)}
+              className="flex-1 bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main placeholder-paper-text-muted focus:outline-none focus:border-paper-caramel font-mono"
+            />
+            <button
+              type="button"
+              onClick={handleAutoFetch}
+              disabled={fetching}
+              className="bg-paper-caramel hover:opacity-90 text-white px-4 py-2 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {fetching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              <span>{fetching ? "取得中..." : "自動取得"}</span>
+            </button>
           </div>
-        </div>
-      )}
 
-      <main className="max-w-3xl mx-auto px-4 py-8 md:px-8">
-        {successMessage && (
-          <div className="mb-6 p-4 bg-emerald-950 border border-emerald-800 text-emerald-200 text-sm flex items-center gap-2">
-            <Check className="w-5 h-5 text-emerald-400" />
-            <span>{successMessage}</span>
-          </div>
-        )}
-
-        {errorMessage && (
-          <div className="mb-6 p-4 bg-neutral-900 border border-neutral-700 text-neutral-300 text-sm">
-            {errorMessage}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <button
-            type="submit"
-            disabled={loading}
-            className={`w-full py-3 font-bold text-sm transition cursor-pointer disabled:opacity-50 rounded shadow-md flex items-center justify-center gap-2 ${
-              existingBook
-                ? "bg-amber-500 text-neutral-950 hover:bg-amber-400"
-                : "bg-neutral-100 text-neutral-900 hover:bg-neutral-300"
-            }`}
-          >
-            {existingBook ? <RefreshCw className="w-4 h-4" /> : null}
-            {loading ? "処理中..." : existingBook ? "この内容でデータを更新（上書き）する" : "本棚に登録する"}
-          </button>
-
-          <div className="bg-neutral-900 border border-neutral-800 p-5 space-y-4">
-            <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
-              <BookOpen className="w-3.5 h-3.5" /> 書籍詳細
-            </h2>
-
-            <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1.5">ステータス</label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setStatus("持っている")}
-                  className={`py-2 text-xs font-bold border transition cursor-pointer ${
-                    status === "持っている"
-                      ? "bg-neutral-100 text-neutral-950 border-neutral-100"
-                      : "bg-neutral-950 text-neutral-400 border-neutral-800 hover:border-neutral-700"
-                  }`}
-                >
-                  持っている本
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStatus("欲しい")}
-                  className={`py-2 text-xs font-bold border transition cursor-pointer ${
-                    status === "欲しい"
-                      ? "bg-neutral-100 text-neutral-950 border-neutral-100"
-                      : "bg-neutral-950 text-neutral-400 border-neutral-800 hover:border-neutral-700"
-                  }`}
-                >
-                  欲しい本
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="block text-xs font-medium text-neutral-400">ISBN</label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={startScanner}
-                    className="cursor-pointer text-xs text-neutral-200 bg-neutral-800 hover:bg-neutral-700 px-3 py-1.5 rounded flex items-center gap-1.5 transition font-semibold"
-                  >
-                    <Camera className="w-3.5 h-3.5 text-neutral-300" />
-                    <span>カメラでバーコード読み取り</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="9784..."
-                  value={isbn}
-                  onChange={(e) => setIsbn(e.target.value)}
-                  className="flex-1 bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500 font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={handleCheckIsbn}
-                  className="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold transition flex items-center gap-1 border border-neutral-700 cursor-pointer whitespace-nowrap"
-                >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>確認</span>
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  className="px-3 py-2 bg-neutral-900 text-neutral-600 text-xs font-bold border border-neutral-800 cursor-not-allowed whitespace-nowrap"
-                  title="後日実装予定"
-                >
-                  自動更新
-                </button>
-              </div>
-
-              {checkMessage && (
-                <div className={`mt-2 p-2.5 text-xs rounded border ${
-                  existingBook 
-                    ? "bg-amber-950/70 border-amber-800 text-amber-200" 
-                    : "bg-emerald-950/70 border-emerald-800 text-emerald-200"
-                }`}>
-                  {checkMessage}
-                  {existingBook && (
-                    <p className="mt-1 text-[11px] text-amber-300">
-                      （登録日: {new Date(existingBook.created_at).toLocaleDateString()} / ステータス: {existingBook.status}）
-                    </p>
-                  )}
-                </div>
+          {fetchMsg && (
+            <div
+              className={`p-3 text-xs flex items-center gap-2 border ${
+                fetchMsg.type === "success"
+                  ? "bg-[#E6F4EA] border-[#A8DADC] text-[#1D3557]"
+                  : "bg-[#F8D7DA] border-[#F5C6CB] text-[#721C24]"
+              }`}
+            >
+              {fetchMsg.type === "success" ? (
+                <Check className="w-4 h-4 shrink-0 text-[#2A9D8F]" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0" />
               )}
+              <span>{fetchMsg.text}</span>
             </div>
+          )}
+        </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="md:col-span-3">
-                <label className="block text-xs font-medium text-neutral-400 mb-1">タイトル *</label>
-                <input
-                  type="text"
-                  required
-                  value={title}
-                  onChange={(e) => handleTitleChange(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1">巻数 (例: 20)</label>
-                <input
-                  type="text"
-                  placeholder="空白可"
-                  value={volume}
-                  onChange={(e) => setVolume(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
-            </div>
+        {/* 手動入力・確認フォーム */}
+        <form onSubmit={handleSubmit} className="bg-paper-card border border-paper-border p-4 md:p-6 space-y-4 shadow-sm">
+          <div className="border-b border-paper-border pb-2">
+            <h2 className="text-xs font-bold text-paper-text-main">書籍詳細情報</h2>
+          </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1">フリガナ</label>
+          {/* ステータス選択 */}
+          <div>
+            <label className="text-xs text-paper-text-sub block mb-1 font-bold">登録先</label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-1.5 text-sm text-paper-text-main cursor-pointer font-bold">
                 <input
-                  type="text"
-                  value={sortTitle}
-                  onChange={(e) => setSortTitle(e.target.value)}
-                  placeholder="例: じゅじゅつかいせん"
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
+                  type="radio"
+                  name="status"
+                  value="持っている"
+                  checked={status === "持っている"}
+                  onChange={() => setStatus("持っている")}
+                  className="accent-[#8C5E3C]"
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
-                  <Layers className="w-3 h-3" /> シリーズ名
-                </label>
-                <input
-                  type="text"
-                  value={series}
-                  onChange={(e) => setSeries(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1">著者名</label>
-                <input
-                  type="text"
-                  value={authors}
-                  onChange={(e) => setAuthors(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1">発行社</label>
-                <input
-                  type="text"
-                  value={publisher}
-                  onChange={(e) => setPublisher(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
-                  <Calendar className="w-3 h-3" /> 登録日
-                </label>
-                <input
-                  type="date"
-                  value={registeredDate}
-                  onChange={(e) => setRegisteredDate(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
-                  <Calendar className="w-3 h-3" /> 発売日
-                </label>
-                <input
-                  type="date"
-                  value={releaseDate}
-                  onChange={(e) => setReleaseDate(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
-                <FileText className="w-3 h-3" /> あらすじ
+                本棚（所有本）
               </label>
-              <textarea
-                rows={3}
-                placeholder="本のあらすじや内容紹介など"
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
-              />
+              <label className="flex items-center gap-1.5 text-sm text-paper-text-main cursor-pointer font-bold">
+                <input
+                  type="radio"
+                  name="status"
+                  value="欲しい"
+                  checked={status === "欲しい"}
+                  onChange={() => setStatus("欲しい")}
+                  className="accent-[#8C5E3C]"
+                />
+                欲しい本リスト
+              </label>
             </div>
+          </div>
 
+          {/* タイトル ＆ フリガナ */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1">メモ（キーワード検索に活用できます）</label>
-              <textarea
-                rows={2}
-                placeholder="個人の感想やメモなど"
-                value={memo}
-                onChange={(e) => setMemo(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">
+                タイトル <span className="text-paper-danger">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="例: 君の名は。"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel"
               />
             </div>
+            <div>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">フリガナ（ソート用）</label>
+              <input
+                type="text"
+                value={sortTitle}
+                onChange={(e) => setSortTitle(e.target.value)}
+                placeholder="例: きみのなは"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel"
+              />
+            </div>
+          </div>
+
+          {/* 巻数 ＆ シリーズ */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">巻数</label>
+              <input
+                type="text"
+                value={volume}
+                onChange={(e) => setVolume(e.target.value)}
+                placeholder="例: 1"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">シリーズ名</label>
+              <input
+                type="text"
+                value={series}
+                onChange={(e) => setSeries(e.target.value)}
+                placeholder="例: 角川文庫"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel"
+              />
+            </div>
+          </div>
+
+          {/* 著者 ＆ 出版社 */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">著者</label>
+              <input
+                type="text"
+                value={authors}
+                onChange={(e) => setAuthors(e.target.value)}
+                placeholder="例: 新海誠"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">出版社</label>
+              <input
+                type="text"
+                value={publisher}
+                onChange={(e) => setPublisher(e.target.value)}
+                placeholder="例: KADOKAWA"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel"
+              />
+            </div>
+          </div>
+
+          {/* ISBN ＆ 発売日 */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">ISBN</label>
+              <input
+                type="text"
+                value={isbn}
+                onChange={(e) => setIsbn(e.target.value)}
+                placeholder="例: 9784041109229"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">発売日</label>
+              <input
+                type="date"
+                value={releaseDate}
+                onChange={(e) => setReleaseDate(e.target.value)}
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+              />
+            </div>
+          </div>
+
+          {/* あらすじ */}
+          <div>
+            <label className="text-xs text-paper-text-sub block mb-1 font-bold">あらすじ・概要</label>
+            <textarea
+              rows={3}
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              placeholder="あらすじが入ります"
+              className="w-full bg-paper-inner border border-paper-border p-2.5 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel leading-relaxed"
+            />
+          </div>
+
+          {/* メモ */}
+          <div>
+            <label className="text-xs text-paper-text-sub block mb-1 font-bold">メモ</label>
+            <textarea
+              rows={2}
+              value={memo}
+              onChange={(e) => setMemo(e.target.value)}
+              placeholder="自由にメモを残せます"
+              className="w-full bg-paper-inner border border-paper-border p-2.5 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel leading-relaxed"
+            />
+          </div>
+
+          {/* 送信ボタン */}
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full bg-paper-caramel hover:opacity-90 text-white font-bold py-3 text-sm transition shadow-sm cursor-pointer disabled:opacity-50"
+            >
+              {submitting ? "登録中..." : "この内容で登録する"}
+            </button>
           </div>
         </form>
       </main>
