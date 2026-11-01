@@ -6,7 +6,7 @@
 }
 
 @theme inline {
-  {/* オールドペーパーテーマのカスタムカラー登録 */}
+  /* オールドペーパーテーマのカスタムカラー登録 */
   --color-paper-bg: #EFE9D9;
   --color-paper-card: #E2DAC6;
   --color-paper-sub: #D4CBB5;
