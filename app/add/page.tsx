@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers, Camera } from "lucide-react";
+import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers, Camera, Image as ImageIcon } from "lucide-react";
 
 type ExistingBookInfo = {
   title: string;
@@ -55,7 +55,7 @@ export default function AddBookPage() {
     setSortTitle(toKatakana(val));
   };
 
-  // Google Books APIでISBNから自動取得
+  // ISBNから自動取得（Google Books API + openBD のハイブリッド）
   const handleFetchByIsbn = async () => {
     const cleanIsbn = isbn.trim();
     if (!cleanIsbn) {
@@ -68,21 +68,42 @@ export default function AddBookPage() {
     setExistingBook(null);
 
     try {
+      // 1. まずは Google Books API を試す
       const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
       const data = await res.json();
 
-      if (data.totalItems === 0 || !data.items) {
-        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
-      } else {
+      if (data.totalItems > 0 && data.items) {
         const volumeInfo = data.items[0].volumeInfo;
         const fetchedTitle = volumeInfo.title || "";
+        
         setTitle(fetchedTitle);
         setSortTitle(toKatakana(fetchedTitle));
         setAuthors(volumeInfo.authors ? volumeInfo.authors.join(", ") : "");
         setPublisher(volumeInfo.publisher || "");
         setPublishedDate(volumeInfo.publishedDate || "");
         setImageLink(volumeInfo.imageLinks?.thumbnail || volumeInfo.imageLinks?.smallThumbnail || "");
+        setFetchingApi(false);
+        return;
       }
+
+      // 2. Google Booksで見つからない場合、openBD APIを試す
+      const openBdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
+      const openBdData = await openBdRes.json();
+
+      if (openBdData && openBdData[0]) {
+        const summary = openBdData[0].summary;
+        const fetchedTitle = summary.title || "";
+
+        setTitle(fetchedTitle);
+        setSortTitle(toKatakana(fetchedTitle));
+        setAuthors(summary.author || "");
+        setPublisher(summary.publisher || "");
+        setPublishedDate(summary.pubdate || "");
+        setImageLink(summary.cover || "");
+      } else {
+        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
+      }
+
     } catch (err) {
       console.error(err);
       setErrorMessage("情報の取得に失敗しました。");
@@ -91,7 +112,7 @@ export default function AddBookPage() {
     }
   };
 
-  // スマホカメラ撮影・画像ファイル選択
+  // 画像ファイル選択・撮影処理
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -319,7 +340,7 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 表紙画像（自動取得 ＆ カメラ・ファイル選択 ＆ URL入力 ＆ クリア） */}
+            {/* 表紙画像（自動取得 ＆ 独立したカメラ撮影・画像選択ボタン ＆ URL入力 ＆ クリア） */}
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1">表紙画像</label>
               <div className="flex flex-col sm:flex-row gap-4 items-start">
@@ -331,7 +352,7 @@ export default function AddBookPage() {
                   )}
                 </div>
 
-                <div className="flex-1 space-y-2 w-full">
+                <div className="flex-1 space-y-3 w-full">
                   <div className="flex gap-2">
                     <input
                       type="url"
@@ -350,14 +371,27 @@ export default function AddBookPage() {
                       </button>
                     )}
                   </div>
-                  <div>
+
+                  {/* 撮影用ボタン と アルバム選択ボタンを分離 */}
+                  <div className="flex flex-wrap gap-2">
                     <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium cursor-pointer transition">
                       <Camera className="w-4 h-4 text-neutral-400" />
-                      <span>スマホで表紙を撮影 / 画像を選択</span>
+                      <span>カメラで撮影</span>
                       <input
                         type="file"
                         accept="image/*"
                         capture="environment"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </label>
+
+                    <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium cursor-pointer transition">
+                      <ImageIcon className="w-4 h-4 text-neutral-400" />
+                      <span>アルバムから選択</span>
+                      <input
+                        type="file"
+                        accept="image/*"
                         onChange={handleImageUpload}
                         className="hidden"
                       />
