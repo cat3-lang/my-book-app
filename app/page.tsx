@@ -5,7 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Layers, Edit3, Heart, Plus, Settings } from "lucide-react";
 
-const APP_VERSION = "v1.0.38";
+const APP_VERSION = "v1.0.39";
 
 type Book = {
   id: string;
@@ -198,11 +198,7 @@ export default function HomePage() {
               <BookOpen className="w-4 h-4 text-paper-caramel" /> 本棚
             </h1>
           </div>
-          <div className="flex items-center gap-2">
-            {/* カウンター */}
-            <div className="text-[11px] font-mono text-paper-text-main font-bold px-2.5 py-1.5 bg-paper-sub border border-paper-border shrink-0">
-              計 {filteredBooks.length}/{books.length}冊
-            </div>
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
               className="bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main text-xs px-3 py-1.5 rounded-none flex items-center gap-1.5 transition cursor-pointer"
@@ -210,6 +206,10 @@ export default function HomePage() {
               <Search className="w-3.5 h-3.5" />
               <span>検索</span>
             </button>
+            {/* カウンター（右寄せ） */}
+            <div className="text-xs font-mono text-paper-text-main font-bold px-3 py-1.5 bg-paper-sub border border-paper-border shrink-0 shadow-xs">
+              計 {filteredBooks.length}/{books.length}冊
+            </div>
           </div>
         </div>
       </header>
@@ -222,7 +222,7 @@ export default function HomePage() {
               <button
                 key={tab}
                 onClick={() => setSelectedTab(tab)}
-                className={`px-2.5 py-1 rounded-none text-xs font-medium whitespace-nowrap transition cursor-pointer ${
+                className={`px-3 py-1.5 rounded-none text-xs font-medium whitespace-nowrap transition cursor-pointer ${
                   selectedTab === tab
                     ? "bg-paper-caramel text-white font-bold shadow-sm"
                     : "bg-paper-sub text-paper-text-body hover:bg-paper-border hover:text-paper-text-main border border-paper-border"
@@ -238,13 +238,13 @@ export default function HomePage() {
         {isSearchOpen && (
           <div className="bg-paper-card border border-paper-border p-3 rounded-none space-y-2">
             <div className="relative">
-              <Search className="w-4 h-4 text-paper-text-muted absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 text-paper-text-muted absolute left-3 top-3" />
               <input
                 type="text"
                 placeholder="タイトル、ふりがな、著者、メモ等で検索..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-paper-inner border border-paper-border pl-9 pr-3 py-2 text-xs text-paper-text-main placeholder-paper-text-muted focus:outline-none focus:border-paper-caramel rounded-none"
+                className="w-full bg-paper-inner border border-paper-border pl-9 pr-3 py-2.5 text-sm text-paper-text-main placeholder-paper-text-muted focus:outline-none focus:border-paper-caramel rounded-none"
               />
             </div>
           </div>
@@ -252,21 +252,21 @@ export default function HomePage() {
 
         {/* リスト一覧 */}
         {loading ? (
-          <p className="text-center text-paper-text-muted py-10 text-xs">読み込み中...</p>
+          <p className="text-center text-paper-text-muted py-10 text-sm">読み込み中...</p>
         ) : groupedBooksList.length === 0 ? (
           <div className="text-center py-16 space-y-3 bg-paper-card border border-paper-border rounded-none">
-            <p className="text-xs text-paper-text-sub">登録されている本はありません</p>
+            <p className="text-sm text-paper-text-sub">登録されている本はありません</p>
             <Link
               href="/add"
-              className="inline-block text-xs font-bold text-white bg-paper-caramel px-4 py-2 rounded-none hover:opacity-90 transition"
+              className="inline-block text-sm font-bold text-white bg-paper-caramel px-5 py-2.5 rounded-none hover:opacity-90 transition"
             >
               最初の本を登録する
             </Link>
           </div>
         ) : (
           <div className="bg-paper-card border border-paper-border rounded-none overflow-hidden shadow-sm">
-            <table className="w-full text-left border-collapse text-xs">
-              <tbody className="divide-y divide-paper-border text-paper-text-body">
+            <table className="w-full text-left border-collapse">
+              <tbody className="divide-y divide-paper-border text-paper-text-body text-sm">
                 {groupedBooksList.map((group) => {
                   const isExpanded = expandedTitle === group.title;
                   const currentSeion = group.seionGroup;
@@ -277,7 +277,7 @@ export default function HomePage() {
                     <React.Fragment key={group.title}>
                       {showSeionHeader && (
                         <tr className="bg-[#D9CFAF] border-t-4 border-paper-border-dark">
-                          <td colSpan={3} className="px-3 py-2 text-xs font-extrabold text-paper-text-main tracking-wider">
+                          <td colSpan={3} className="px-3.5 py-2.5 text-xs font-extrabold text-paper-text-main tracking-wider">
                             【 {currentSeion} 】
                           </td>
                         </tr>
@@ -288,18 +288,18 @@ export default function HomePage() {
                         className="hover:bg-paper-sub/60 transition cursor-pointer border-t border-paper-border"
                         onClick={() => setExpandedTitle(isExpanded ? null : group.title)}
                       >
-                        <td className="p-3 font-medium text-paper-text-main max-w-[220px] md:max-w-none flex items-center gap-2">
+                        <td className="p-3.5 font-bold text-paper-text-main max-w-[220px] md:max-w-none flex items-center gap-2.5">
                           <span className="text-paper-caramel shrink-0">
                             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                           </span>
-                          <div className="truncate">{group.title}</div>
+                          <div className="truncate text-sm md:text-base">{group.title}</div>
                         </td>
-                        <td className="p-3 font-mono text-paper-text-body whitespace-nowrap">
-                          <span className="bg-paper-sub text-paper-text-main px-2.5 py-1 rounded-none text-[11px] border border-paper-border font-bold">
+                        <td className="p-3.5 font-mono text-paper-text-body whitespace-nowrap">
+                          <span className="bg-paper-sub text-paper-text-main px-3 py-1.5 rounded-none text-xs border border-paper-border font-bold shadow-2xs">
                             全 {group.books.length} 冊
                           </span>
                         </td>
-                        <td className="p-3 text-right text-[11px] text-paper-text-sub whitespace-nowrap">
+                        <td className="p-3.5 text-right text-xs text-paper-text-sub whitespace-nowrap">
                           {group.books[0]?.series ? `シリーズ: ${group.books[0].series}` : ""}
                         </td>
                       </tr>
@@ -307,8 +307,8 @@ export default function HomePage() {
                       {/* 巻一覧展開エリア */}
                       {isExpanded && (
                         <tr className="bg-paper-inner/95 border-b-2 border-paper-border-dark">
-                          <td colSpan={3} className="p-3 md:p-4 space-y-3">
-                            <div className="space-y-2">
+                          <td colSpan={3} className="p-3 md:p-5 space-y-3">
+                            <div className="space-y-3">
                               {group.books.map((book) => {
                                 const isBookExpanded = !!expandedBookIds[book.id];
                                 const isEditing = editingBookId === book.id;
@@ -316,122 +316,123 @@ export default function HomePage() {
                                 return (
                                   <div 
                                     key={book.id} 
-                                    className="bg-paper-card border border-paper-border rounded-none p-3 space-y-2 text-xs"
+                                    className="bg-paper-card border border-paper-border rounded-none p-3.5 space-y-3 text-sm"
                                   >
                                     <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2 flex-wrap">
+                                      <div className="flex items-center gap-3 flex-wrap">
+                                        {/* 大きく押しやすくした巻数ボタン */}
                                         <button
                                           type="button"
                                           onClick={(e) => toggleBookDetail(book.id, e)}
-                                          className="text-paper-text-main flex items-center gap-1 bg-paper-sub border border-paper-border px-2 py-0.5 rounded-none font-bold cursor-pointer"
+                                          className="text-paper-text-main flex items-center gap-1.5 bg-paper-sub hover:bg-paper-border border border-paper-border px-3.5 py-1.5 rounded-none font-bold text-sm cursor-pointer shadow-2xs transition"
                                         >
-                                          {isBookExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                                          <span>{book.volume ? `${book.volume}巻` : "ー"}</span>
+                                          {isBookExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                                          <span>{book.volume ? `${book.volume}巻` : "詳細"}</span>
                                         </button>
-                                        <span className="text-paper-text-body text-[11px]">
+                                        <span className="text-paper-text-body text-xs md:text-sm">
                                           著者: <strong className="text-paper-text-main">{book.authors || "ー"}</strong>
                                         </span>
-                                        <span className="text-paper-text-sub text-[11px]">
+                                        <span className="text-paper-text-sub text-xs">
                                           登録日: {book.created_at ? book.created_at.split("T")[0] : "ー"}
                                         </span>
                                       </div>
                                     </div>
 
                                     {(isBookExpanded || isEditing) && (
-                                      <div className="mt-2 pt-2 border-t border-paper-border space-y-2 text-[11px] text-paper-text-body bg-paper-inner p-3 rounded-none">
+                                      <div className="mt-2 pt-3 border-t border-paper-border space-y-3 text-xs md:text-sm text-paper-text-body bg-paper-inner p-3.5 rounded-none">
                                         {isEditing ? (
                                           /* 編集モード */
                                           <div className="space-y-3">
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-2 gap-2.5">
                                               <div>
-                                                <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">タイトル</label>
+                                                <label className="text-xs text-paper-text-sub block mb-1 font-bold">タイトル</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.title || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                                                  className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main rounded-none w-full"
+                                                  className="bg-white border border-paper-border px-2.5 py-1.5 text-sm text-paper-text-main rounded-none w-full"
                                                 />
                                               </div>
                                               <div>
-                                                <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">フリガナ</label>
+                                                <label className="text-xs text-paper-text-sub block mb-1 font-bold">フリガナ</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.sort_title || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, sort_title: e.target.value })}
-                                                  className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main rounded-none w-full"
+                                                  className="bg-white border border-paper-border px-2.5 py-1.5 text-sm text-paper-text-main rounded-none w-full"
                                                 />
                                               </div>
                                             </div>
 
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-2 gap-2.5">
                                               <div>
-                                                <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">巻数</label>
+                                                <label className="text-xs text-paper-text-sub block mb-1 font-bold">巻数</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.volume || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, volume: e.target.value })}
-                                                  className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main rounded-none w-full font-mono"
+                                                  className="bg-white border border-paper-border px-2.5 py-1.5 text-sm text-paper-text-main rounded-none w-full font-mono"
                                                 />
                                               </div>
                                               <div>
-                                                <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">著者</label>
+                                                <label className="text-xs text-paper-text-sub block mb-1 font-bold">著者</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.authors || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, authors: e.target.value })}
-                                                  className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main rounded-none w-full"
+                                                  className="bg-white border border-paper-border px-2.5 py-1.5 text-sm text-paper-text-main rounded-none w-full"
                                                 />
                                               </div>
                                             </div>
 
-                                            <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid grid-cols-2 gap-2.5">
                                               <div>
-                                                <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">出版社</label>
+                                                <label className="text-xs text-paper-text-sub block mb-1 font-bold">出版社</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.publisher || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, publisher: e.target.value })}
-                                                  className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main rounded-none w-full"
+                                                  className="bg-white border border-paper-border px-2.5 py-1.5 text-sm text-paper-text-main rounded-none w-full"
                                                 />
                                               </div>
                                               <div>
-                                                <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">発売日</label>
+                                                <label className="text-xs text-paper-text-sub block mb-1 font-bold">発売日</label>
                                                 <input
                                                   type="date"
                                                   value={editForm.release_date || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, release_date: e.target.value })}
-                                                  className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main rounded-none w-full font-mono"
+                                                  className="bg-white border border-paper-border px-2.5 py-1.5 text-sm text-paper-text-main rounded-none w-full font-mono"
                                                 />
                                               </div>
                                             </div>
 
                                             <div>
-                                              <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">ISBN</label>
+                                              <label className="text-xs text-paper-text-sub block mb-1 font-bold">ISBN</label>
                                               <input
                                                 type="text"
                                                 value={editForm.isbn || ""}
                                                 onChange={(e) => setEditForm({ ...editForm, isbn: e.target.value })}
-                                                className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main rounded-none w-full font-mono"
+                                                className="bg-white border border-paper-border px-2.5 py-1.5 text-sm text-paper-text-main rounded-none w-full font-mono"
                                               />
                                             </div>
 
                                             <div>
-                                              <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">あらすじ</label>
+                                              <label className="text-xs text-paper-text-sub block mb-1 font-bold">あらすじ</label>
                                               <textarea
                                                 rows={2}
                                                 value={editForm.summary || ""}
                                                 onChange={(e) => setEditForm({ ...editForm, summary: e.target.value })}
-                                                className="bg-white border border-paper-border p-1.5 text-xs text-paper-text-main rounded-none w-full"
+                                                className="bg-white border border-paper-border p-2 text-sm text-paper-text-main rounded-none w-full"
                                               />
                                             </div>
 
                                             <div>
-                                              <label className="text-[10px] text-paper-text-sub block mb-0.5 font-bold">メモ</label>
+                                              <label className="text-xs text-paper-text-sub block mb-1 font-bold">メモ</label>
                                               <textarea
                                                 rows={2}
                                                 value={editForm.memo || ""}
                                                 onChange={(e) => setEditForm({ ...editForm, memo: e.target.value })}
-                                                className="bg-white border border-paper-border p-1.5 text-xs text-paper-text-main rounded-none w-full"
+                                                className="bg-white border border-paper-border p-2 text-sm text-paper-text-main rounded-none w-full"
                                               />
                                             </div>
 
@@ -439,9 +440,9 @@ export default function HomePage() {
                                               <button
                                                 type="button"
                                                 onClick={() => handleDelete(book.id, book.title, book.volume)}
-                                                className="px-2.5 py-1.5 bg-paper-danger hover:opacity-90 text-white rounded-none text-xs flex items-center gap-1 transition cursor-pointer font-bold"
+                                                className="px-3 py-2 bg-paper-danger hover:opacity-90 text-white rounded-none text-xs flex items-center gap-1 transition cursor-pointer font-bold"
                                               >
-                                                <Trash2 className="w-3.5 h-3.5" />
+                                                <Trash2 className="w-4 h-4" />
                                                 <span>削除</span>
                                               </button>
 
@@ -449,14 +450,14 @@ export default function HomePage() {
                                                 <button
                                                   type="button"
                                                   onClick={() => setEditingBookId(null)}
-                                                  className="px-3 py-1.5 bg-paper-sub hover:bg-paper-border text-paper-text-main rounded-none text-xs transition cursor-pointer border border-paper-border font-bold"
+                                                  className="px-3.5 py-2 bg-paper-sub hover:bg-paper-border text-paper-text-main rounded-none text-xs transition cursor-pointer border border-paper-border font-bold"
                                                 >
                                                   キャンセル
                                                 </button>
                                                 <button
                                                   type="button"
                                                   onClick={() => handleSaveInline(book.id)}
-                                                  className="px-3 py-1.5 bg-paper-caramel hover:opacity-90 text-white rounded-none text-xs font-bold transition cursor-pointer"
+                                                  className="px-4 py-2 bg-paper-caramel hover:opacity-90 text-white rounded-none text-xs font-bold transition cursor-pointer"
                                                 >
                                                   変更を保存
                                                 </button>
@@ -465,19 +466,19 @@ export default function HomePage() {
                                           </div>
                                         ) : (
                                           /* 通常表示モード */
-                                          <div className="space-y-2 text-paper-text-body">
-                                            <div className="grid grid-cols-2 gap-2 pb-1 border-b border-paper-border items-center">
+                                          <div className="space-y-2.5 text-paper-text-body">
+                                            <div className="grid grid-cols-2 gap-2 pb-2 border-b border-paper-border items-center">
                                               <div>
-                                                <span className="text-paper-text-sub block text-[10px] font-bold">出版社</span>
-                                                <span className="text-paper-text-main font-semibold">{book.publisher || "ー"}</span>
+                                                <span className="text-paper-text-sub block text-xs font-bold">出版社</span>
+                                                <span className="text-paper-text-main font-semibold text-sm">{book.publisher || "ー"}</span>
                                               </div>
                                               <div className="text-right">
                                                 <button
                                                   type="button"
                                                   onClick={(e) => startEditing(book, e)}
-                                                  className="px-2.5 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main rounded-none text-[11px] transition inline-flex items-center gap-1 cursor-pointer font-bold"
+                                                  className="px-3 py-1.5 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main rounded-none text-xs transition inline-flex items-center gap-1 cursor-pointer font-bold shadow-2xs"
                                                 >
-                                                  <Edit3 className="w-3 h-3 text-paper-caramel" />
+                                                  <Edit3 className="w-3.5 h-3.5 text-paper-caramel" />
                                                   <span>編集</span>
                                                 </button>
                                               </div>
@@ -485,25 +486,25 @@ export default function HomePage() {
 
                                             <div className="grid grid-cols-2 gap-2 pb-1">
                                               <div>
-                                                <span className="text-paper-text-sub block text-[10px] font-bold">ISBN</span>
-                                                <span className="font-mono text-paper-text-main">{book.isbn || "ー"}</span>
+                                                <span className="text-paper-text-sub block text-xs font-bold">ISBN</span>
+                                                <span className="font-mono text-paper-text-main text-xs">{book.isbn || "ー"}</span>
                                               </div>
                                               <div>
-                                                <span className="text-paper-text-sub block text-[10px] font-bold">発売日</span>
-                                                <span className="font-mono text-paper-text-main">{book.release_date || "ー"}</span>
+                                                <span className="text-paper-text-sub block text-xs font-bold">発売日</span>
+                                                <span className="font-mono text-paper-text-main text-xs">{book.release_date || "ー"}</span>
                                               </div>
                                             </div>
 
                                             <div>
-                                              <span className="text-paper-text-sub block text-[10px] mb-0.5 font-bold">あらすじ</span>
-                                              <p className="text-paper-text-body leading-relaxed bg-paper-card p-2 rounded-none border border-paper-border">
+                                              <span className="text-paper-text-sub block text-xs mb-1 font-bold">あらすじ</span>
+                                              <p className="text-paper-text-body leading-relaxed bg-paper-card p-2.5 rounded-none border border-paper-border text-xs md:text-sm">
                                                 {book.summary || "あらすじがありません"}
                                               </p>
                                             </div>
 
                                             <div>
-                                              <span className="text-paper-text-sub block text-[10px] mb-0.5 font-bold">メモ</span>
-                                              <p className="text-paper-text-body italic bg-paper-card p-2 rounded-none border border-paper-border">
+                                              <span className="text-paper-text-sub block text-xs mb-1 font-bold">メモ</span>
+                                              <p className="text-paper-text-body italic bg-paper-card p-2.5 rounded-none border border-paper-border text-xs md:text-sm">
                                                 {book.memo || "メモがありません"}
                                               </p>
                                             </div>
