@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Search, BookOpen, Camera, Check, X, Calendar, Layers, Hash } from "lucide-react";
+import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers } from "lucide-react";
 
 type ExistingBookInfo = {
   title: string;
@@ -27,39 +27,34 @@ export default function AddBookPage() {
   // フォーム入力の状態
   const [isbn, setIsbn] = useState("");
   const [title, setTitle] = useState("");
-  const [sortTitle, setSortTitle] = useState(""); // フリガナ（並び替え用）
-  const [series, setSeries] = useState(""); // シリーズ名
+  const [sortTitle, setSortTitle] = useState("");
+  const [series, setSeries] = useState("");
   const [authors, setAuthors] = useState("");
   const [publisher, setPublisher] = useState("");
   const [publishedDate, setPublishedDate] = useState("");
   const [imageLink, setImageLink] = useState("");
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   
-  // 今日の日付を YYYY-MM-DD 形式で取得
   const todayStr = new Date().toISOString().split("T")[0];
   const [registeredDate, setRegisteredDate] = useState(todayStr);
 
   const [memo, setMemo] = useState("");
 
-  // ローディング・エラー・成功メッセージ
   const [loading, setLoading] = useState(false);
   const [fetchingApi, setFetchingApi] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
 
-  // タイトル変更時にフリガナを自動生成
   const handleTitleChange = (val: string) => {
     setTitle(val);
-    // 自動で簡易カタカナ化してソート用にセット（手動修正も可）
     setSortTitle(toKatakana(val));
   };
 
-  // 1. Google Books APIでISBNから自動取得
   const handleFetchByIsbn = async () => {
     const cleanIsbn = isbn.trim();
     if (!cleanIsbn) {
-      setErrorMessage("ISBN（バーコードの数字）を入力してください。");
+      setErrorMessage("ISBNを入力してください。");
       return;
     }
 
@@ -72,7 +67,7 @@ export default function AddBookPage() {
       const data = await res.json();
 
       if (data.totalItems === 0 || !data.items) {
-        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
+        setErrorMessage("該当する書籍が見つかりませんでした。");
       } else {
         const volumeInfo = data.items[0].volumeInfo;
         const fetchedTitle = volumeInfo.title || "";
@@ -91,19 +86,6 @@ export default function AddBookPage() {
     }
   };
 
-  // 2. 画像ファイル選択・カメラ撮影
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImageLink(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // 3. データベースへ登録する処理（重複チェック含む）
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -117,7 +99,6 @@ export default function AddBookPage() {
 
     const cleanIsbn = isbn.trim();
 
-    // 既に同じISBNが登録されているかチェック
     if (cleanIsbn) {
       const { data: foundData } = await supabase
         .from("books")
@@ -132,7 +113,6 @@ export default function AddBookPage() {
       }
     }
 
-    // 登録実行
     const { error } = await supabase.from("books").insert([
       {
         title: title.trim(),
@@ -141,10 +121,10 @@ export default function AddBookPage() {
         authors: authors.trim() || null,
         publisher: publisher.trim() || null,
         published_date: publishedDate.trim() || null,
-        image_link: image_link_sanitized(imageLink),
+        image_link: imageLink.trim() || null,
         isbn: cleanIsbn || null,
         status: status,
-        created_at: new Date(registeredDate).toISOString(), // 選択された登録日を反映
+        created_at: new Date(registeredDate).toISOString(),
         memo: memo.trim() || null,
       },
     ]);
@@ -158,20 +138,15 @@ export default function AddBookPage() {
       }
       setLoading(false);
     } else {
-      setSuccessMessage("登録が完了しました！");
+      setSuccessMessage("登録が完了しました");
       setTimeout(() => {
         router.push(status === "持っている" ? "/" : "/wants");
       }, 800);
     }
   };
 
-  const image_link_sanitized = (link: string) => {
-    return link.trim() || null;
-  };
-
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans pb-20">
-      {/* ヘッダー */}
       <header className="sticky top-0 z-10 bg-neutral-950/85 backdrop-blur-md border-b border-neutral-800 px-4 py-4 md:px-8">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Link
@@ -187,7 +162,6 @@ export default function AddBookPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8 md:px-8">
-        {/* 成功メッセージ */}
         {successMessage && (
           <div className="mb-6 p-4 bg-emerald-950 border border-emerald-800 text-emerald-200 text-sm flex items-center gap-2">
             <Check className="w-5 h-5 text-emerald-400" />
@@ -195,16 +169,12 @@ export default function AddBookPage() {
           </div>
         )}
 
-        {/* 重複エラー時の過去情報表示 */}
         {existingBook && (
           <div className="mb-8 p-5 bg-neutral-900 border border-neutral-700 text-neutral-200">
             <h2 className="font-bold text-base mb-2 text-neutral-100 flex items-center gap-2">
               ⚠️ すでに登録されている本です
             </h2>
-            <p className="text-sm mb-3 text-neutral-400">
-              入力されたISBNの本は、すでに登録されています。
-            </p>
-            <div className="bg-neutral-950 p-3 border border-neutral-800 text-xs space-y-1 text-neutral-300">
+            <div className="bg-neutral-950 p-3 border border-neutral-800 text-xs space-y-1 text-neutral-300 mt-2">
               <p><strong className="text-neutral-100">タイトル:</strong> {existingBook.title}</p>
               <p><strong className="text-neutral-100">ステータス:</strong> {existingBook.status}</p>
               <p><strong className="text-neutral-100">登録日:</strong> {new Date(existingBook.created_at).toLocaleDateString()}</p>
@@ -213,7 +183,6 @@ export default function AddBookPage() {
           </div>
         )}
 
-        {/* エラーメッセージ */}
         {errorMessage && (
           <div className="mb-6 p-4 bg-neutral-900 border border-red-500/50 text-red-300 text-sm">
             {errorMessage}
@@ -221,15 +190,14 @@ export default function AddBookPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* ── 1. ISBN検索エリア ── */}
           <div className="bg-neutral-900 border border-neutral-800 p-5 space-y-3">
             <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Search className="w-3.5 h-3.5" /> ISBN（バーコード数字）から自動取得
+              <Search className="w-3.5 h-3.5" /> ISBN
             </h2>
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="例: 9784101010011"
+                placeholder="9784..."
                 value={isbn}
                 onChange={(e) => setIsbn(e.target.value)}
                 className="flex-1 bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
@@ -243,18 +211,13 @@ export default function AddBookPage() {
                 <span>{fetchingApi ? "取得中..." : "自動取得"}</span>
               </button>
             </div>
-            <p className="text-[11px] text-neutral-500">
-              ※バーコードの13桁を入力して自動取得できます。空欄のまま手入力も可能です。
-            </p>
           </div>
 
-          {/* ── 2. 詳細情報入力エリア ── */}
           <div className="bg-neutral-900 border border-neutral-800 p-5 space-y-4">
             <h2 className="text-xs font-bold text-neutral-400 uppercase tracking-wider flex items-center gap-1.5">
               <BookOpen className="w-3.5 h-3.5" /> 書籍詳細
             </h2>
 
-            {/* ステータス選択（視認性を高めたモノトーンボタン） */}
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1.5">ステータス</label>
               <div className="grid grid-cols-2 gap-2">
@@ -283,29 +246,25 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* タイトル */}
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1">タイトル *</label>
               <input
                 type="text"
                 required
-                placeholder="本のタイトル"
                 value={title}
                 onChange={(e) => handleTitleChange(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
               />
             </div>
 
-            {/* フリガナ（あかさたな順ソート用） & シリーズ名 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1">フリガナ（あかさたな順用）</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">フリガナ（並び替え用）</label>
                 <input
                   type="text"
-                  placeholder="例: キドウセンシガンダム"
                   value={sortTitle}
                   onChange={(e) => setSortTitle(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
                 />
               </div>
               <div>
@@ -314,30 +273,26 @@ export default function AddBookPage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="例: ハリーポッター"
                   value={series}
                   onChange={(e) => setSeries(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
                 />
               </div>
             </div>
 
-            {/* 著者名 */}
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1">著者名</label>
               <input
                 type="text"
-                placeholder="著者名"
                 value={authors}
                 onChange={(e) => setAuthors(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
               />
             </div>
 
-            {/* 登録日（自動＆変更可） */}
             <div>
               <label className="block text-xs font-medium text-neutral-400 mb-1 flex items-center gap-1">
-                <Calendar className="w-3 h-3" /> 登録日（変更可能）
+                <Calendar className="w-3 h-3" /> 登録日
               </label>
               <input
                 type="date"
@@ -347,22 +302,12 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 表紙画像 ＆ クリア ＆ カメラ撮影 */}
             <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1">表紙画像</label>
+              <label className="block text-xs font-medium text-neutral-400 mb-1">表紙画像URL</label>
               <div className="flex flex-col sm:flex-row gap-4 items-start">
-                <div className="w-20 h-28 bg-neutral-950 border border-neutral-800 flex items-center justify-center overflow-hidden shrink-0 relative group">
+                <div className="w-20 h-28 bg-neutral-950 border border-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
                   {imageLink ? (
-                    <>
-                      <img src={imageLink} alt="表紙" className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => setImageLink("")}
-                        className="absolute inset-0 bg-neutral-950/80 text-white opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center text-[10px]"
-                      >
-                        <X className="w-4 h-4 mb-1" /> クリア
-                      </button>
-                    </>
+                    <img src={imageLink} alt="表紙" className="w-full h-full object-cover" />
                   ) : (
                     <BookOpen className="w-6 h-6 text-neutral-700" />
                   )}
@@ -372,10 +317,9 @@ export default function AddBookPage() {
                   <div className="flex gap-2">
                     <input
                       type="url"
-                      placeholder="画像のURL"
                       value={imageLink}
                       onChange={(e) => setImageLink(e.target.value)}
-                      className="flex-1 bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                      className="flex-1 bg-neutral-950 border border-neutral-800 px-3 py-2 text-xs text-neutral-100 focus:outline-none focus:border-neutral-500"
                     />
                     {imageLink && (
                       <button
@@ -387,37 +331,21 @@ export default function AddBookPage() {
                       </button>
                     )}
                   </div>
-                  <div>
-                    <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium cursor-pointer transition">
-                      <Camera className="w-4 h-4 text-neutral-400" />
-                      <span>スマホで表紙を撮影 / 画像を選択</span>
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={handleImageUpload}
-                        className="hidden"
-                      />
-                    </label>
-                  </div>
                 </div>
               </div>
             </div>
 
-            {/* メモ */}
             <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1">メモ（場所や家族へのコメントなど）</label>
+              <label className="block text-xs font-medium text-neutral-400 mb-1">メモ（キーワード検索に活用できます）</label>
               <textarea
                 rows={2}
-                placeholder="例: リビングの本棚下段、全巻揃ったなど..."
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-neutral-500"
+                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
               />
             </div>
           </div>
 
-          {/* 登録ボタン */}
           <button
             type="submit"
             disabled={loading}
