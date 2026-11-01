@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers, Camera, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Search, BookOpen, Check, X, Calendar, Layers, Camera, Image as ImageIcon, Maximize2, Crop } from "lucide-react";
 
 type ExistingBookInfo = {
   title: string;
@@ -13,9 +13,10 @@ type ExistingBookInfo = {
   memo: string | null;
 };
 
-// 簡易的なカタカナ変換（ひらがな→カタカナ）
+// 記号やスペースを除外して綺麗にカタカナ変換（フリガナ用）
 function toKatakana(str: string) {
-  return str.replace(/[\u3041-\u3096]/g, function (match) {
+  const cleanStr = str.replace(/[Ａ-Ｚａ-ｚ０-９\s:：()（）「」『』ー-]/g, "");
+  return cleanStr.replace(/[\u3041-\u3096]/g, function (match) {
     var chr = match.charCodeAt(0) + 0x60;
     return String.fromCharCode(chr);
   });
@@ -50,12 +51,16 @@ export default function AddBookPage() {
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
 
+  // モーダル・トリミング用ステート
+  const [showZoomModal, setShowZoomModal] = useState(false);
+  const [imageFitMode, setImageFitMode] = useState<"cover" | "contain">("cover"); // トリミング（全体表示・切り抜き）の切り替え
+
   const handleTitleChange = (val: string) => {
     setTitle(val);
     setSortTitle(toKatakana(val));
   };
 
-  // ISBNから自動取得（Google Books API + openBD のハイブリッド）
+  // Google Books APIによるISBN自動取得
   const handleFetchByIsbn = async () => {
     const cleanIsbn = isbn.trim();
     if (!cleanIsbn) {
@@ -68,41 +73,47 @@ export default function AddBookPage() {
     setExistingBook(null);
 
     try {
-      // 1. まずは Google Books API を試す
       const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
       const data = await res.json();
 
-      if (data.totalItems > 0 && data.items) {
-        const volumeInfo = data.items[0].volumeInfo;
-        const fetchedTitle = volumeInfo.title || "";
-        
-        setTitle(fetchedTitle);
-        setSortTitle(toKatakana(fetchedTitle));
-        setAuthors(volumeInfo.authors ? volumeInfo.authors.join(", ") : "");
-        setPublisher(volumeInfo.publisher || "");
-        setPublishedDate(volumeInfo.publishedDate || "");
-        setImageLink(volumeInfo.imageLinks?.thumbnail || volumeInfo.imageLinks?.smallThumbnail || "");
+      if (data.totalItems === 0 || !data.items) {
+        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
         setFetchingApi(false);
         return;
       }
 
-      // 2. Google Booksで見つからない場合、openBD APIを試す
-      const openBdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
-      const openBdData = await openBdRes.json();
+      const volumeInfo = data.items[0].volumeInfo;
+      const rawTitle = volumeInfo.title || "";
 
-      if (openBdData && openBdData[0]) {
-        const summary = openBdData[0].summary;
-        const fetchedTitle = summary.title || "";
+      let parsedTitle = rawTitle;
+      let parsedSeries = volumeInfo.seriesInfo?.bookDisplayTitle || "";
 
-        setTitle(fetchedTitle);
-        setSortTitle(toKatakana(fetchedTitle));
-        setAuthors(summary.author || "");
-        setPublisher(summary.publisher || "");
-        setPublishedDate(summary.pubdate || "");
-        setImageLink(summary.cover || "");
-      } else {
-        setErrorMessage("該当する書籍が見つかりませんでした。手動で入力してください。");
+      // タイトルに「 : 」や「 (」が含まれる場合の切り分け
+      if (rawTitle.includes(" : ")) {
+        const parts = rawTitle.split(" : ");
+        if (!parsedSeries) parsedSeries = parts[0]; // サブタイトル前をシリーズ名候補に
       }
+      if (rawTitle.includes(" (") && rawTitle.endsWith(")")) {
+        const parts = rawTitle.split(" (");
+        parsedTitle = parts[0];
+        if (!parsedSeries) {
+          parsedSeries = parts[1].replace(")", "");
+        }
+      }
+
+      setTitle(parsedTitle);
+      setSeries(parsedSeries);
+      setSortTitle(toKatakana(parsedTitle));
+
+      // 著者名はカンマではなくスペース区切りに変換
+      setAuthors(volumeInfo.authors ? volumeInfo.authors.join(" " ) : "");
+      
+      setPublisher(volumeInfo.publisher || "");
+      setPublishedDate(volumeInfo.publishedDate || "");
+      
+      // 画像リンクの取得（httpをhttpsに置換して確実な表示にする）
+      const rawImg = volumeInfo.imageLinks?.thumbnail || volumeInfo.imageLinks?.smallThumbnail || "";
+      setImageLink(rawImg.replace("http://", "https://"));
 
     } catch (err) {
       console.error(err);
@@ -112,7 +123,7 @@ export default function AddBookPage() {
     }
   };
 
-  // 画像ファイル選択・撮影処理
+  // カメラ撮影・画像選択
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -318,14 +329,25 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1">著者名</label>
-              <input
-                type="text"
-                value={authors}
-                onChange={(e) => setAuthors(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">著者名</label>
+                <input
+                  type="text"
+                  value={authors}
+                  onChange={(e) => setAuthors(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">出版社</label>
+                <input
+                  type="text"
+                  value={publisher}
+                  onChange={(e) => setPublisher(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-neutral-500"
+                />
+              </div>
             </div>
 
             <div>
@@ -340,15 +362,48 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 表紙画像（自動取得 ＆ 独立したカメラ撮影・画像選択ボタン ＆ URL入力 ＆ クリア） */}
+            {/* 表紙画像（プレビュー・拡大・トリミング切り替え・カメラ・アルバム） */}
             <div>
-              <label className="block text-xs font-medium text-neutral-400 mb-1">表紙画像</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-neutral-400">表紙画像</label>
+                {imageLink && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setImageFitMode(imageFitMode === "cover" ? "contain" : "cover")}
+                      className="text-[10px] text-neutral-400 hover:text-neutral-100 flex items-center gap-1 bg-neutral-800 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      <Crop className="w-3 h-3" /> トリミング切替: {imageFitMode === "cover" ? "切り抜き" : "全体表示"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowZoomModal(true)}
+                      className="text-[10px] text-neutral-400 hover:text-neutral-100 flex items-center gap-1 bg-neutral-800 px-2 py-0.5 rounded cursor-pointer"
+                    >
+                      <Maximize2 className="w-3 h-3" /> 拡大
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="flex flex-col sm:flex-row gap-4 items-start">
-                <div className="w-20 h-28 bg-neutral-950 border border-neutral-800 flex items-center justify-center overflow-hidden shrink-0">
+                <div 
+                  className="w-20 h-28 bg-neutral-950 border border-neutral-800 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer relative group"
+                  onClick={() => imageLink && setShowZoomModal(true)}
+                >
                   {imageLink ? (
-                    <img src={imageLink} alt="表紙プレビュー" className="w-full h-full object-cover" />
+                    <img 
+                      src={imageLink} 
+                      alt="表紙プレビュー" 
+                      className={`w-full h-full ${imageFitMode === "cover" ? "object-cover" : "object-contain"}`} 
+                    />
                   ) : (
                     <BookOpen className="w-6 h-6 text-neutral-700" />
+                  )}
+                  {imageLink && (
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[10px]">
+                      拡大
+                    </div>
                   )}
                 </div>
 
@@ -372,7 +427,6 @@ export default function AddBookPage() {
                     )}
                   </div>
 
-                  {/* 撮影用ボタン と アルバム選択ボタンを分離 */}
                   <div className="flex flex-wrap gap-2">
                     <label className="inline-flex items-center gap-1.5 px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium cursor-pointer transition">
                       <Camera className="w-4 h-4 text-neutral-400" />
@@ -421,6 +475,38 @@ export default function AddBookPage() {
           </button>
         </form>
       </main>
+
+      {/* 画像拡大＆トリミング確認モーダル */}
+      {showZoomModal && imageLink && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+          <div className="absolute top-4 right-4 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setImageFitMode(imageFitMode === "cover" ? "contain" : "cover")}
+              className="px-3 py-1.5 bg-neutral-800 text-neutral-200 text-xs rounded hover:bg-neutral-700 transition"
+            >
+              表示切替: {imageFitMode === "cover" ? "切り抜き(Cover)" : "全体(Contain)"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowZoomModal(false)}
+              className="p-2 bg-neutral-800 text-white rounded-full hover:bg-neutral-700 transition"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+          <div className="max-w-md w-full h-[75vh] flex items-center justify-center overflow-hidden">
+            <img
+              src={imageLink}
+              alt="拡大プレビュー"
+              className={`max-h-full max-w-full shadow-2xl ${imageFitMode === "cover" ? "object-cover w-full h-full" : "object-contain"}`}
+            />
+          </div>
+          <p className="text-xs text-neutral-400 mt-4">
+            ※「切り抜き」と「全体表示」を切り替えることで、登録前後の見た目（トリミング）を調整できます。
+          </p>
+        </div>
+      )}
     </div>
   );
 }
