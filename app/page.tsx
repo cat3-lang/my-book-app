@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Search, ChevronDown, ChevronUp, Trash2, BookOpen, Layers, Edit3, Heart, Plus, Settings } from "lucide-react";
+import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Layers, Edit3, Heart, Plus, Settings } from "lucide-react";
 
-const APP_VERSION = "v1.0.29";
+const APP_VERSION = "v1.0.31";
 
 type Book = {
   id: string;
@@ -235,7 +235,7 @@ export default function HomePage() {
               <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="タイトル、ひらがな、著者、メモ等で検索..."
+                placeholder="タイトル、ふりがな、著者、メモ等で検索..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-neutral-950 border border-neutral-700 pl-9 pr-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-neutral-500 rounded"
@@ -244,7 +244,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* テーブル一覧 */}
+        {/* リスト一覧 */}
         {loading ? (
           <p className="text-center text-neutral-500 py-10 text-xs">読み込み中...</p>
         ) : groupedBooksList.length === 0 ? (
@@ -277,37 +277,28 @@ export default function HomePage() {
                         </tr>
                       )}
 
+                      {/* タイトル行（行全体をクリックで開閉） */}
                       <tr 
                         className="hover:bg-neutral-800/50 transition cursor-pointer border-t border-neutral-800"
                         onClick={() => setExpandedTitle(isExpanded ? null : group.title)}
                       >
-                        <td className="p-3 font-medium text-neutral-100 max-w-[180px] md:max-w-none">
+                        <td className="p-3 font-medium text-neutral-100 max-w-[220px] md:max-w-none flex items-center gap-2">
+                          <span className="text-emerald-400 shrink-0">
+                            {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                          </span>
                           <div className="truncate">{group.title}</div>
-                          {group.books[0]?.series && (
-                            <div className="text-[10px] text-neutral-400 flex items-center gap-1 mt-0.5 truncate">
-                              <Layers className="w-3 h-3 shrink-0" /> シリーズ: {group.books[0].series}
-                            </div>
-                          )}
                         </td>
                         <td className="p-3 font-mono text-neutral-300 whitespace-nowrap">
                           <span className="bg-neutral-800 text-neutral-200 px-2.5 py-1 rounded text-[11px] border border-neutral-700 font-bold">
                             全 {group.books.length} 冊
                           </span>
                         </td>
-                        <td className="p-3 text-right whitespace-nowrap">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setExpandedTitle(isExpanded ? null : group.title);
-                            }}
-                            className="px-2.5 py-1 rounded text-[11px] font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition inline-flex items-center gap-1 cursor-pointer"
-                          >
-                            <span>詳細</span>
-                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                          </button>
+                        <td className="p-3 text-right text-[11px] text-neutral-400 whitespace-nowrap">
+                          {group.books[0]?.series ? `シリーズ: ${group.books[0].series}` : ""}
                         </td>
                       </tr>
 
+                      {/* タイトルごとの巻一覧展開エリア */}
                       {isExpanded && (
                         <tr className="bg-neutral-950/90 border-b-2 border-neutral-700">
                           <td colSpan={3} className="p-3 md:p-4 space-y-3">
@@ -323,25 +314,21 @@ export default function HomePage() {
                                   >
                                     <div className="flex items-center justify-between">
                                       <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-mono bg-neutral-800 text-amber-300 px-2 py-0.5 rounded text-[11px] font-bold">
-                                          {book.volume ? `${book.volume}巻` : "ー"}
-                                        </span>
+                                        {/* 巻数の左側の三角アイコンで個別開閉 */}
+                                        <button
+                                          type="button"
+                                          onClick={(e) => toggleBookDetail(book.id, e)}
+                                          className="text-amber-400 flex items-center gap-1 bg-neutral-800 px-2 py-0.5 rounded font-bold cursor-pointer"
+                                        >
+                                          {isBookExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                                          <span>{book.volume ? `${book.volume}巻` : "ー"}</span>
+                                        </button>
                                         <span className="text-neutral-300 text-[11px]">
                                           著者: <strong className="text-neutral-100">{book.authors || "ー"}</strong>
                                         </span>
                                         <span className="text-neutral-400 text-[11px]">
                                           登録日: {book.created_at ? book.created_at.split("T")[0] : "ー"}
                                         </span>
-                                      </div>
-                                      <div className="flex items-center gap-1.5">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => toggleBookDetail(book.id, e)}
-                                          className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] inline-flex items-center gap-1 transition cursor-pointer"
-                                        >
-                                          <span>情報</span>
-                                          {isBookExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                                        </button>
                                       </div>
                                     </div>
 
@@ -361,7 +348,7 @@ export default function HomePage() {
                                                 />
                                               </div>
                                               <div>
-                                                <label className="text-[10px] text-neutral-400 block mb-0.5">読み仮名（ひらがな）</label>
+                                                <label className="text-[10px] text-neutral-400 block mb-0.5">フリガナ</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.sort_title || ""}
