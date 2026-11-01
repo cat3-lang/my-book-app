@@ -8,7 +8,7 @@ import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Sea
 import { Html5Qrcode } from "html5-qrcode";
 
 // 🔄 デプロイ確認用のバージョン番号
-const APP_VERSION = "v1.0.12";
+const APP_VERSION = "v1.0.13";
 
 type ExistingBookInfo = {
   id: string;
@@ -116,7 +116,7 @@ export default function AddBookPage() {
       setCheckMessage("⚠️ すでに登録されています（情報をフォームに反映しました）");
     } else {
       setExistingBook(null);
-      setCheckMessage("✅ 未登録です（かぶりなし）");
+      setCheckMessage("✅ 未登録です");
     }
   };
 
@@ -231,7 +231,7 @@ export default function AddBookPage() {
         if (error.code === "23505") {
           setErrorMessage("このISBNの本はすでに登録されています。");
         } else {
-          setErrorMessage(`登録に失敗しました: ${error.message}`);
+          setErrorMessage(`登録に失敗しました: ${error.message} (エラーコード: ${error.code})`);
         }
         setLoading(false);
       } else {
@@ -430,7 +430,7 @@ export default function AddBookPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-neutral-400 mb-1">フリガナ（並び替え用・ひらがな/カタカナ）</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-1">フリガナ</label>
                 <input
                   type="text"
                   value={sortTitle}
