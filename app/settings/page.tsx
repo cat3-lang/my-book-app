@@ -26,7 +26,6 @@ export default function SettingsPage() {
       "release_date",
     ];
 
-    // まとめて登録するための複数冊サンプルデータ
     const sampleRows = [
       [
         "サンプル漫画A",
@@ -83,7 +82,7 @@ export default function SettingsPage() {
     document.body.removeChild(link);
   };
 
-  // 📤 CSV書き出し（エクスポート）
+  // 📤 CSV書き出し（エクスポート / バックアップ）
   const handleExportCSV = async () => {
     setExporting(true);
     setMessage(null);
@@ -143,7 +142,7 @@ export default function SettingsPage() {
     }
   };
 
-  // 📥 CSV読み込み（インポート）
+  // 📥 CSV読み込み（インポート：重複は自動スキップ＆結果集計）
   const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -187,7 +186,21 @@ export default function SettingsPage() {
 
         const headers = parseCSVLine(lines[0]).map((h) => h.trim().replace(/^"|"$/g, ""));
 
+        // 1. 既存のデータを取得して重複チェックの準備をする
+        const { data: existingBooks, error: fetchError } = await supabase.from("books").select("title, volume, isbn");
+        if (fetchError) throw fetchError;
+
+        const existingSet = new Set(
+          (existingBooks || []).map((b) => {
+            // ISBNがあればISBN優先、なければ「タイトル+巻数」で判定
+            if (b.isbn) return `isbn:${b.isbn.trim()}`;
+            return `tv:${b.title.trim()}_${(b.volume || "").trim()}`;
+          })
+        );
+
         const booksToInsert = [];
+        let skippedCount = 0;
+
         for (let i = 1; i < lines.length; i++) {
           const values = parseCSVLine(lines[i]).map((v) => v.trim().replace(/^"|"$/g, ""));
           if (values.length < headers.length) continue;
@@ -203,18 +216,33 @@ export default function SettingsPage() {
           if (rowData.title) {
             if (!rowData.status) rowData.status = "持っている";
             if (!rowData.sort_title) rowData.sort_title = rowData.title;
-            booksToInsert.push(rowData);
+
+            // 重複チェック
+            const isbnKey = rowData.isbn ? `isbn:${rowData.isbn.trim()}` : null;
+            const tvKey = `tv:${rowData.title.trim()}_${(rowData.volume || "").trim()}`;
+
+            const isDuplicate = (isbnKey && existingSet.has(isbnKey)) || existingSet.has(tvKey);
+
+            if (isDuplicate) {
+              skippedCount++;
+            } else {
+              booksToInsert.push(rowData);
+              // 重複判定用セットにも追加（CSV内での重複も防ぐ）
+              if (isbnKey) existingSet.add(isbnKey);
+              existingSet.add(tvKey);
+            }
           }
         }
 
-        if (booksToInsert.length === 0) {
-          throw new Error("取り込める書籍データがCSV内にありませんでした。");
+        if (booksToInsert.length > 0) {
+          const { error: insertError } = await supabase.from("books").insert(booksToInsert);
+          if (insertError) throw insertError;
         }
 
-        const { error } = await supabase.from("books").insert(booksToInsert);
-        if (error) throw error;
-
-        setMessage({ type: "success", text: `${booksToInsert.length}件の書籍データを正常に取り込みました！` });
+        setMessage({
+          type: "success",
+          text: `インポートが完了しました！（新規追加: ${booksToInsert.length}冊 / 重複スキップ: ${skippedCount}冊）`,
+        });
       } catch (err: any) {
         setMessage({ type: "error", text: "インポートに失敗しました: " + err.message });
       } finally {
@@ -310,7 +338,7 @@ export default function SettingsPage() {
                 <Upload className="w-4 h-4 text-amber-400" /> 一括インポート
               </h2>
               <p className="text-xs text-neutral-400 leading-relaxed">
-                作成したCSVファイルを選択して、本棚や欲しい本リストへ書籍データを一括で登録します。
+                CSVファイルを選択して一括登録します。既存の本は自動でスキップされ重複を防ぎます。
               </p>
             </div>
             <label className="w-full py-2.5 bg-neutral-100 hover:bg-neutral-300 text-neutral-950 text-xs font-bold rounded transition cursor-pointer flex items-center justify-center gap-2">

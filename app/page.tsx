@@ -5,7 +5,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Layers, Edit3, Heart, Plus, Settings } from "lucide-react";
 
-const APP_VERSION = "v1.0.31";
+const APP_VERSION = "v1.0.33";
 
 type Book = {
   id: string;
@@ -133,6 +133,7 @@ export default function HomePage() {
     }
   };
 
+  // フィルタリング（五十音 ＆ 検索キーワード）
   const filteredBooks = books.filter((b) => {
     const q = searchQuery.toLowerCase().trim();
     const seion = getSeionGroup(b.sort_title || b.title);
@@ -185,23 +186,23 @@ export default function HomePage() {
   let lastSeionGroup = "";
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans pb-28 relative">
-      <div className="absolute top-1 right-2 z-20 text-[9px] text-neutral-600 font-mono">
+    <div className="min-h-screen bg-[#141210] text-[#EFECE6] font-sans pb-28 relative">
+      <div className="absolute top-1 right-2 z-20 text-[9px] text-[#7A7267] font-mono">
         {APP_VERSION}
       </div>
 
-      {/* ヘッダー */}
-      <header className="sticky top-0 z-10 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800 px-4 py-3 md:px-8">
+      {/* ヘッダー（落ち着いたダークブラウン＆シャープな角） */}
+      <header className="sticky top-0 z-10 bg-[#1c1815]/90 backdrop-blur-md border-b border-[#2d2621] px-4 py-3 md:px-8">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <h1 className="text-sm font-bold tracking-wider text-neutral-100 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-emerald-400" /> 本棚
+            <h1 className="text-sm font-bold tracking-wider text-[#EFECE6] flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-[#D97706]" /> 本棚
             </h1>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
-              className="bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-300 text-xs px-2.5 py-1.5 rounded flex items-center gap-1 transition cursor-pointer"
+              className="bg-[#241f1b] hover:bg-[#2d2621] border border-[#3b322a] text-[#d4cfc5] text-xs px-3 py-1.5 rounded-none flex items-center gap-1.5 transition cursor-pointer"
             >
               <Search className="w-3.5 h-3.5" />
               <span>検索</span>
@@ -211,34 +212,40 @@ export default function HomePage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-2 md:px-8 py-6 space-y-4">
-        {/* 五十音タブ */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-2 scrollbar-none">
-          {SEION_TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setSelectedTab(tab)}
-              className={`px-3 py-1 rounded text-xs font-medium whitespace-nowrap transition cursor-pointer ${
-                selectedTab === tab
-                  ? "bg-emerald-600 text-neutral-100 shadow"
-                  : "bg-neutral-900 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 border border-neutral-800"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+        {/* 五十音タブ ＆ リアルタイム件数カウンター */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 bg-[#1c1815] border border-[#2d2621] p-2.5 rounded-none">
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 md:pb-0 scrollbar-none">
+            {SEION_TABS.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setSelectedTab(tab)}
+                className={`px-2.5 py-1 rounded-none text-xs font-medium whitespace-nowrap transition cursor-pointer ${
+                  selectedTab === tab
+                    ? "bg-[#B45309] text-[#FFFBEB] font-bold shadow-sm"
+                    : "bg-[#241f1b] text-[#A8A29E] hover:bg-[#2d2621] hover:text-[#EFECE6] border border-[#3b322a]"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          {/* ヒット件数カウンター */}
+          <div className="text-[11px] font-mono text-[#D97706] px-2 py-1 bg-[#241f1b] border border-[#3b322a] shrink-0 text-right">
+            該当: <strong className="text-[#FFFBEB]">{filteredBooks.length}</strong> 冊 (全 {books.length} 冊)
+          </div>
         </div>
 
         {/* 検索パネル */}
         {isSearchOpen && (
-          <div className="bg-neutral-900 border border-neutral-800 p-3 rounded space-y-2">
+          <div className="bg-[#1c1815] border border-[#2d2621] p-3 rounded-none space-y-2">
             <div className="relative">
-              <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
+              <Search className="w-4 h-4 text-[#7A7267] absolute left-3 top-2.5" />
               <input
                 type="text"
                 placeholder="タイトル、ふりがな、著者、メモ等で検索..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-700 pl-9 pr-3 py-2 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-neutral-500 rounded"
+                className="w-full bg-[#141210] border border-[#3b322a] pl-9 pr-3 py-2 text-xs text-[#EFECE6] placeholder-[#7A7267] focus:outline-none focus:border-[#D97706] rounded-none"
               />
             </div>
           </div>
@@ -246,21 +253,21 @@ export default function HomePage() {
 
         {/* リスト一覧 */}
         {loading ? (
-          <p className="text-center text-neutral-500 py-10 text-xs">読み込み中...</p>
+          <p className="text-center text-[#7A7267] py-10 text-xs">読み込み中...</p>
         ) : groupedBooksList.length === 0 ? (
-          <div className="text-center py-16 space-y-3 bg-neutral-900/50 border border-neutral-800 rounded">
-            <p className="text-xs text-neutral-400">登録されている本はありません</p>
+          <div className="text-center py-16 space-y-3 bg-[#1c1815] border border-[#2d2621] rounded-none">
+            <p className="text-xs text-[#A8A29E]">登録されている本はありません</p>
             <Link
               href="/add"
-              className="inline-block text-xs font-bold text-neutral-950 bg-neutral-100 px-4 py-2 rounded hover:bg-neutral-300 transition"
+              className="inline-block text-xs font-bold text-[#141210] bg-[#EFECE6] px-4 py-2 rounded-none hover:bg-[#D4CFC5] transition"
             >
               最初の本を登録する
             </Link>
           </div>
         ) : (
-          <div className="bg-neutral-900 border border-neutral-800 rounded overflow-hidden shadow-sm">
+          <div className="bg-[#1c1815] border border-[#2d2621] rounded-none overflow-hidden shadow-sm">
             <table className="w-full text-left border-collapse text-xs">
-              <tbody className="divide-y divide-neutral-800 text-neutral-200">
+              <tbody className="divide-y divide-[#2d2621] text-[#EFECE6]">
                 {groupedBooksList.map((group) => {
                   const isExpanded = expandedTitle === group.title;
                   const currentSeion = group.seionGroup;
@@ -270,37 +277,37 @@ export default function HomePage() {
                   return (
                     <React.Fragment key={group.title}>
                       {showSeionHeader && (
-                        <tr className="bg-neutral-950 border-t-4 border-neutral-700">
-                          <td colSpan={3} className="px-3 py-2 text-xs font-extrabold text-neutral-300 tracking-wider">
+                        <tr className="bg-[#0f0d0c] border-t-4 border-[#3b322a]">
+                          <td colSpan={3} className="px-3 py-2 text-xs font-extrabold text-[#D97706] tracking-wider">
                             【 {currentSeion} 】
                           </td>
                         </tr>
                       )}
 
-                      {/* タイトル行（行全体をクリックで開閉） */}
+                      {/* タイトル行 */}
                       <tr 
-                        className="hover:bg-neutral-800/50 transition cursor-pointer border-t border-neutral-800"
+                        className="hover:bg-[#241f1b]/60 transition cursor-pointer border-t border-[#2d2621]"
                         onClick={() => setExpandedTitle(isExpanded ? null : group.title)}
                       >
-                        <td className="p-3 font-medium text-neutral-100 max-w-[220px] md:max-w-none flex items-center gap-2">
-                          <span className="text-emerald-400 shrink-0">
+                        <td className="p-3 font-medium text-[#EFECE6] max-w-[220px] md:max-w-none flex items-center gap-2">
+                          <span className="text-[#D97706] shrink-0">
                             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                           </span>
                           <div className="truncate">{group.title}</div>
                         </td>
-                        <td className="p-3 font-mono text-neutral-300 whitespace-nowrap">
-                          <span className="bg-neutral-800 text-neutral-200 px-2.5 py-1 rounded text-[11px] border border-neutral-700 font-bold">
+                        <td className="p-3 font-mono text-[#C5BCB3] whitespace-nowrap">
+                          <span className="bg-[#241f1b] text-[#EFECE6] px-2.5 py-1 rounded-none text-[11px] border border-[#3b322a] font-bold">
                             全 {group.books.length} 冊
                           </span>
                         </td>
-                        <td className="p-3 text-right text-[11px] text-neutral-400 whitespace-nowrap">
+                        <td className="p-3 text-right text-[11px] text-[#A8A29E] whitespace-nowrap">
                           {group.books[0]?.series ? `シリーズ: ${group.books[0].series}` : ""}
                         </td>
                       </tr>
 
-                      {/* タイトルごとの巻一覧展開エリア */}
+                      {/* 巻一覧展開エリア */}
                       {isExpanded && (
-                        <tr className="bg-neutral-950/90 border-b-2 border-neutral-700">
+                        <tr className="bg-[#141210]/95 border-b-2 border-[#3b322a]">
                           <td colSpan={3} className="p-3 md:p-4 space-y-3">
                             <div className="space-y-2">
                               {group.books.map((book) => {
@@ -310,132 +317,130 @@ export default function HomePage() {
                                 return (
                                   <div 
                                     key={book.id} 
-                                    className="bg-neutral-900 border border-neutral-800 rounded p-3 space-y-2 text-xs"
+                                    className="bg-[#1c1815] border border-[#2d2621] rounded-none p-3 space-y-2 text-xs"
                                   >
                                     <div className="flex items-center justify-between">
                                       <div className="flex items-center gap-2 flex-wrap">
-                                        {/* 巻数の左側の三角アイコンで個別開閉 */}
                                         <button
                                           type="button"
                                           onClick={(e) => toggleBookDetail(book.id, e)}
-                                          className="text-amber-400 flex items-center gap-1 bg-neutral-800 px-2 py-0.5 rounded font-bold cursor-pointer"
+                                          className="text-[#FBBF24] flex items-center gap-1 bg-[#241f1b] border border-[#3b322a] px-2 py-0.5 rounded-none font-bold cursor-pointer"
                                         >
                                           {isBookExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                                           <span>{book.volume ? `${book.volume}巻` : "ー"}</span>
                                         </button>
-                                        <span className="text-neutral-300 text-[11px]">
-                                          著者: <strong className="text-neutral-100">{book.authors || "ー"}</strong>
+                                        <span className="text-[#C5BCB3] text-[11px]">
+                                          著者: <strong className="text-[#EFECE6]">{book.authors || "ー"}</strong>
                                         </span>
-                                        <span className="text-neutral-400 text-[11px]">
+                                        <span className="text-[#A8A29E] text-[11px]">
                                           登録日: {book.created_at ? book.created_at.split("T")[0] : "ー"}
                                         </span>
                                       </div>
                                     </div>
 
                                     {(isBookExpanded || isEditing) && (
-                                      <div className="mt-2 pt-2 border-t border-neutral-800 space-y-2 text-[11px] text-neutral-300 bg-neutral-950 p-2.5 rounded">
+                                      <div className="mt-2 pt-2 border-t border-[#2d2621] space-y-2 text-[11px] text-[#C5BCB3] bg-[#141210] p-2.5 rounded-none">
                                         {isEditing ? (
                                           /* 編集モード */
                                           <div className="space-y-3">
                                             <div className="grid grid-cols-2 gap-2">
                                               <div>
-                                                <label className="text-[10px] text-neutral-400 block mb-0.5">タイトル</label>
+                                                <label className="text-[10px] text-[#A8A29E] block mb-0.5">タイトル</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.title || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full"
+                                                  className="bg-[#1c1815] border border-[#3b322a] px-2 py-1 text-xs text-[#EFECE6] rounded-none w-full"
                                                 />
                                               </div>
                                               <div>
-                                                <label className="text-[10px] text-neutral-400 block mb-0.5">フリガナ</label>
+                                                <label className="text-[10px] text-[#A8A29E] block mb-0.5">フリガナ</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.sort_title || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, sort_title: e.target.value })}
-                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full"
+                                                  className="bg-[#1c1815] border border-[#3b322a] px-2 py-1 text-xs text-[#EFECE6] rounded-none w-full"
                                                 />
                                               </div>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-2">
                                               <div>
-                                                <label className="text-[10px] text-neutral-400 block mb-0.5">巻数</label>
+                                                <label className="text-[10px] text-[#A8A29E] block mb-0.5">巻数</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.volume || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, volume: e.target.value })}
-                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full font-mono"
+                                                  className="bg-[#1c1815] border border-[#3b322a] px-2 py-1 text-xs text-[#EFECE6] rounded-none w-full font-mono"
                                                 />
                                               </div>
                                               <div>
-                                                <label className="text-[10px] text-neutral-400 block mb-0.5">著者</label>
+                                                <label className="text-[10px] text-[#A8A29E] block mb-0.5">著者</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.authors || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, authors: e.target.value })}
-                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full"
+                                                  className="bg-[#1c1815] border border-[#3b322a] px-2 py-1 text-xs text-[#EFECE6] rounded-none w-full"
                                                 />
                                               </div>
                                             </div>
 
                                             <div className="grid grid-cols-2 gap-2">
                                               <div>
-                                                <label className="text-[10px] text-neutral-400 block mb-0.5">出版社</label>
+                                                <label className="text-[10px] text-[#A8A29E] block mb-0.5">出版社</label>
                                                 <input
                                                   type="text"
                                                   value={editForm.publisher || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, publisher: e.target.value })}
-                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full"
+                                                  className="bg-[#1c1815] border border-[#3b322a] px-2 py-1 text-xs text-[#EFECE6] rounded-none w-full"
                                                 />
                                               </div>
                                               <div>
-                                                <label className="text-[10px] text-neutral-400 block mb-0.5">発売日</label>
+                                                <label className="text-[10px] text-[#A8A29E] block mb-0.5">発売日</label>
                                                 <input
                                                   type="date"
                                                   value={editForm.release_date || ""}
                                                   onChange={(e) => setEditForm({ ...editForm, release_date: e.target.value })}
-                                                  className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full font-mono"
+                                                  className="bg-[#1c1815] border border-[#3b322a] px-2 py-1 text-xs text-[#EFECE6] rounded-none w-full font-mono"
                                                 />
                                               </div>
                                             </div>
 
                                             <div>
-                                              <label className="text-[10px] text-neutral-400 block mb-0.5">ISBN</label>
+                                              <label className="text-[10px] text-[#A8A29E] block mb-0.5">ISBN</label>
                                               <input
                                                 type="text"
                                                 value={editForm.isbn || ""}
                                                 onChange={(e) => setEditForm({ ...editForm, isbn: e.target.value })}
-                                                className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-100 rounded w-full font-mono"
+                                                className="bg-[#1c1815] border border-[#3b322a] px-2 py-1 text-xs text-[#EFECE6] rounded-none w-full font-mono"
                                               />
                                             </div>
 
                                             <div>
-                                              <label className="text-[10px] text-neutral-400 block mb-0.5">あらすじ</label>
+                                              <label className="text-[10px] text-[#A8A29E] block mb-0.5">あらすじ</label>
                                               <textarea
                                                 rows={2}
                                                 value={editForm.summary || ""}
                                                 onChange={(e) => setEditForm({ ...editForm, summary: e.target.value })}
-                                                className="bg-neutral-900 border border-neutral-700 p-1.5 text-xs text-neutral-100 rounded w-full"
+                                                className="bg-[#1c1815] border border-[#3b322a] p-1.5 text-xs text-[#EFECE6] rounded-none w-full"
                                               />
                                             </div>
 
                                             <div>
-                                              <label className="text-[10px] text-neutral-400 block mb-0.5">メモ</label>
+                                              <label className="text-[10px] text-[#A8A29E] block mb-0.5">メモ</label>
                                               <textarea
                                                 rows={2}
                                                 value={editForm.memo || ""}
                                                 onChange={(e) => setEditForm({ ...editForm, memo: e.target.value })}
-                                                className="bg-neutral-900 border border-neutral-700 p-1.5 text-xs text-neutral-100 rounded w-full"
+                                                className="bg-[#1c1815] border border-[#3b322a] p-1.5 text-xs text-[#EFECE6] rounded-none w-full"
                                               />
                                             </div>
 
-                                            {/* 編集時の最下部操作エリア：左側に削除、右側にキャンセル・保存 */}
-                                            <div className="flex items-center justify-between pt-2 border-t border-neutral-800">
+                                            <div className="flex items-center justify-between pt-2 border-t border-[#2d2621]">
                                               <button
                                                 type="button"
                                                 onClick={() => handleDelete(book.id, book.title, book.volume)}
-                                                className="px-2.5 py-1.5 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 rounded text-xs flex items-center gap-1 transition cursor-pointer"
+                                                className="px-2.5 py-1.5 bg-[#451a1a]/80 hover:bg-[#5c2323] border border-[#7f2d2d] text-[#fca5a5] rounded-none text-xs flex items-center gap-1 transition cursor-pointer"
                                               >
                                                 <Trash2 className="w-3.5 h-3.5" />
                                                 <span>削除</span>
@@ -445,14 +450,14 @@ export default function HomePage() {
                                                 <button
                                                   type="button"
                                                   onClick={() => setEditingBookId(null)}
-                                                  className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs transition cursor-pointer"
+                                                  className="px-3 py-1.5 bg-[#241f1b] hover:bg-[#2d2621] text-[#C5BCB3] rounded-none text-xs transition cursor-pointer border border-[#3b322a]"
                                                 >
                                                   キャンセル
                                                 </button>
                                                 <button
                                                   type="button"
                                                   onClick={() => handleSaveInline(book.id)}
-                                                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold transition cursor-pointer"
+                                                  className="px-3 py-1.5 bg-[#B45309] hover:bg-[#D97706] text-[#FFFBEB] rounded-none text-xs font-bold transition cursor-pointer"
                                                 >
                                                   変更を保存
                                                 </button>
@@ -462,18 +467,18 @@ export default function HomePage() {
                                         ) : (
                                           /* 通常表示モード */
                                           <div className="space-y-2">
-                                            <div className="grid grid-cols-2 gap-2 pb-1 border-b border-neutral-900 items-center">
+                                            <div className="grid grid-cols-2 gap-2 pb-1 border-b border-[#2d2621] items-center">
                                               <div>
-                                                <span className="text-neutral-500 block text-[10px]">出版社</span>
-                                                <span className="text-neutral-200">{book.publisher || "ー"}</span>
+                                                <span className="text-[#A8A29E] block text-[10px]">出版社</span>
+                                                <span className="text-[#EFECE6]">{book.publisher || "ー"}</span>
                                               </div>
                                               <div className="text-right">
                                                 <button
                                                   type="button"
                                                   onClick={(e) => startEditing(book, e)}
-                                                  className="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] transition inline-flex items-center gap-1 cursor-pointer"
+                                                  className="px-2.5 py-1 bg-[#241f1b] hover:bg-[#2d2621] border border-[#3b322a] text-[#EFECE6] rounded-none text-[11px] transition inline-flex items-center gap-1 cursor-pointer"
                                                 >
-                                                  <Edit3 className="w-3 h-3" />
+                                                  <Edit3 className="w-3 h-3 text-[#D97706]" />
                                                   <span>編集</span>
                                                 </button>
                                               </div>
@@ -481,25 +486,25 @@ export default function HomePage() {
 
                                             <div className="grid grid-cols-2 gap-2 pb-1">
                                               <div>
-                                                <span className="text-neutral-500 block text-[10px]">ISBN</span>
-                                                <span className="font-mono text-neutral-200">{book.isbn || "ー"}</span>
+                                                <span className="text-[#A8A29E] block text-[10px]">ISBN</span>
+                                                <span className="font-mono text-[#EFECE6]">{book.isbn || "ー"}</span>
                                               </div>
                                               <div>
-                                                <span className="text-neutral-500 block text-[10px]">発売日</span>
-                                                <span className="font-mono text-neutral-200">{book.release_date || "ー"}</span>
+                                                <span className="text-[#A8A29E] block text-[10px]">発売日</span>
+                                                <span className="font-mono text-[#EFECE6]">{book.release_date || "ー"}</span>
                                               </div>
                                             </div>
 
                                             <div>
-                                              <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">あらすじ</span>
-                                              <p className="text-neutral-300 leading-relaxed bg-neutral-900 p-2 rounded border border-neutral-800">
+                                              <span className="text-[#A8A29E] block text-[10px] mb-0.5 font-semibold">あらすじ</span>
+                                              <p className="text-[#C5BCB3] leading-relaxed bg-[#141210] p-2 rounded-none border border-[#2d2621]">
                                                 {book.summary || "あらすじがありません"}
                                               </p>
                                             </div>
 
                                             <div>
-                                              <span className="text-neutral-500 block text-[10px] mb-0.5 font-semibold">メモ</span>
-                                              <p className="text-neutral-300 italic bg-neutral-900 p-2 rounded border border-neutral-800">
+                                              <span className="text-[#A8A29E] block text-[10px] mb-0.5 font-semibold">メモ</span>
+                                              <p className="text-[#C5BCB3] italic bg-[#141210] p-2 rounded-none border border-[#2d2621]">
                                                 {book.memo || "メモがありません"}
                                               </p>
                                             </div>
@@ -523,33 +528,33 @@ export default function HomePage() {
         )}
       </main>
 
-      {/* 固定ボトムナビゲーション */}
-      <nav aria-label="メインナビゲーション" className="fixed bottom-0 left-0 right-0 z-30 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-800 px-2 py-2">
+      {/* 固定ボトムナビゲーション（シャープな茶色系） */}
+      <nav aria-label="メインナビゲーション" className="fixed bottom-0 left-0 right-0 z-30 bg-[#1c1815]/95 backdrop-blur-md border-t border-[#2d2621] px-2 py-2">
         <div className="max-w-md mx-auto grid grid-cols-4 gap-1 text-center">
           <Link
             href="/"
-            className="flex flex-col items-center justify-center py-1 text-emerald-400 hover:text-emerald-300 transition"
+            className="flex flex-col items-center justify-center py-1 text-[#D97706] hover:text-[#FBBF24] transition"
           >
             <BookOpen className="w-5 h-5 mb-0.5" />
             <span className="text-[10px] font-bold">本棚</span>
           </Link>
           <Link
             href="/wants"
-            className="flex flex-col items-center justify-center py-1 text-neutral-400 hover:text-neutral-200 transition"
+            className="flex flex-col items-center justify-center py-1 text-[#A8A29E] hover:text-[#EFECE6] transition"
           >
             <Heart className="w-5 h-5 mb-0.5" />
             <span className="text-[10px] font-medium">欲しい本</span>
           </Link>
           <Link
             href="/add"
-            className="flex flex-col items-center justify-center py-1 text-neutral-400 hover:text-neutral-200 transition"
+            className="flex flex-col items-center justify-center py-1 text-[#A8A29E] hover:text-[#EFECE6] transition"
           >
             <Plus className="w-5 h-5 mb-0.5" />
             <span className="text-[10px] font-medium">登録</span>
           </Link>
           <Link
             href="/settings"
-            className="flex flex-col items-center justify-center py-1 text-neutral-400 hover:text-neutral-200 transition"
+            className="flex flex-col items-center justify-center py-1 text-[#A8A29E] hover:text-[#EFECE6] transition"
           >
             <Settings className="w-5 h-5 mb-0.5" />
             <span className="text-[10px] font-medium">設定・CSV</span>
