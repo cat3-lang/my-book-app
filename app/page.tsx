@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { Plus, Search, ChevronDown, ChevronUp, Trash2, BookOpen, Layers, Check, X, Edit3, Save } from "lucide-react";
+import { Search, ChevronUp, Trash2, BookOpen, Layers, Check, X, Edit3, Save, Heart, Plus, Settings } from "lucide-react";
 
-const APP_VERSION = "v1.0.25";
+const APP_VERSION = "v1.0.27";
 
 type Book = {
   id: string;
@@ -58,7 +59,6 @@ export default function HomePage() {
   const [expandedTitle, setExpandedTitle] = useState<string | null>(null);
   const [expandedBookIds, setExpandedBookIds] = useState<{ [key: string]: boolean }>({});
 
-  // その場でのインライン編集管理用（どの本のどの項目を編集中か）
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Book>>({});
 
@@ -99,14 +99,12 @@ export default function HomePage() {
     setExpandedBookIds((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // その場での編集開始
   const startEditing = (book: Book, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingBookId(book.id);
     setEditForm({ ...book });
   };
 
-  // その場での編集保存
   const handleSaveInline = async (id: string) => {
     const updateData = {
       title: editForm.title || "",
@@ -185,23 +183,18 @@ export default function HomePage() {
   let lastSeionGroup = "";
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans pb-20 relative">
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans pb-28 relative">
       <div className="absolute top-1 right-2 z-20 text-[9px] text-neutral-600 font-mono">
         {APP_VERSION}
       </div>
 
+      {/* ヘッダー */}
       <header className="sticky top-0 z-10 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800 px-4 py-3 md:px-8">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h1 className="text-sm font-bold tracking-wider text-neutral-100 flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-emerald-400" /> 本棚
             </h1>
-            <Link
-              href="/wants"
-              className="text-xs text-neutral-400 hover:text-neutral-200 underline transition"
-            >
-              欲しい本リスト
-            </Link>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -211,19 +204,13 @@ export default function HomePage() {
               <Search className="w-3.5 h-3.5" />
               <span>検索</span>
             </button>
-            <Link
-              href="/add"
-              className="bg-neutral-100 hover:bg-neutral-300 text-neutral-950 text-xs font-bold px-3 py-1.5 rounded flex items-center gap-1 transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>登録</span>
-            </Link>
           </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-2 md:px-8 py-6 space-y-4">
-        <div className="flex items-center gap-1 overflow-x-auto pb-2">
+        {/* 五十音タブ */}
+        <div className="flex items-center gap-1 overflow-x-auto pb-2 scrollbar-none">
           {SEION_TABS.map((tab) => (
             <button
               key={tab}
@@ -239,6 +226,7 @@ export default function HomePage() {
           ))}
         </div>
 
+        {/* 検索パネル */}
         {isSearchOpen && (
           <div className="bg-neutral-900 border border-neutral-800 p-3 rounded space-y-2">
             <div className="relative">
@@ -254,6 +242,7 @@ export default function HomePage() {
           </div>
         )}
 
+        {/* テーブル一覧 */}
         {loading ? (
           <p className="text-center text-neutral-500 py-10 text-xs">読み込み中...</p>
         ) : groupedBooksList.length === 0 ? (
@@ -319,7 +308,7 @@ export default function HomePage() {
                             className="px-2.5 py-1 rounded text-[11px] font-medium bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition inline-flex items-center gap-1 cursor-pointer"
                           >
                             <span>詳細</span>
-                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5 rotate-180" />}
                           </button>
                         </td>
                       </tr>
@@ -356,7 +345,7 @@ export default function HomePage() {
                                           className="px-2 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded text-[11px] inline-flex items-center gap-1 transition cursor-pointer"
                                         >
                                           <span>情報</span>
-                                          {isBookExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                                          {isBookExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronUp className="w-3 h-3 rotate-180" />}
                                         </button>
 
                                         {!isEditing ? (
@@ -390,11 +379,9 @@ export default function HomePage() {
                                       </div>
                                     </div>
 
-                                    {/* 情報が開いている時、または編集中なら詳細を表示 */}
                                     {(isBookExpanded || isEditing) && (
                                       <div className="mt-2 pt-2 border-t border-neutral-800 space-y-2 text-[11px] text-neutral-300 bg-neutral-950 p-2.5 rounded">
                                         {isEditing ? (
-                                          // --- 編集モード ---
                                           <div className="space-y-3">
                                             <div className="grid grid-cols-2 gap-2">
                                               <div>
@@ -472,21 +459,20 @@ export default function HomePage() {
                                               <button
                                                 type="button"
                                                 onClick={() => setEditingBookId(null)}
-                                                className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs"
+                                                className="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded text-xs cursor-pointer"
                                               >
                                                 キャンセル
                                               </button>
                                               <button
                                                 type="button"
                                                 onClick={() => handleSaveInline(book.id)}
-                                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold"
+                                                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-bold cursor-pointer"
                                               >
                                                 変更を保存
                                               </button>
                                             </div>
                                           </div>
                                         ) : (
-                                          // --- 通常表示モード ---
                                           <div className="space-y-2">
                                             <div className="grid grid-cols-2 gap-2 pb-1 border-b border-neutral-900">
                                               <div>
@@ -536,6 +522,40 @@ export default function HomePage() {
           </div>
         )}
       </main>
+
+      {/* 🧭 固定ボトムナビゲーション（下部タブバー） */}
+      <nav aria-label="メインナビゲーション" className="fixed bottom-0 left-0 right-0 z-30 bg-neutral-950/95 backdrop-blur-md border-t border-neutral-800 px-2 py-2">
+        <div className="max-w-md mx-auto grid grid-cols-4 gap-1 text-center">
+          <Link
+            href="/"
+            className="flex flex-col items-center justify-center py-1 text-emerald-400 hover:text-emerald-300 transition"
+          >
+            <BookOpen className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-bold">本棚</span>
+          </Link>
+          <Link
+            href="/wants"
+            className="flex flex-col items-center justify-center py-1 text-neutral-400 hover:text-neutral-200 transition"
+          >
+            <Heart className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">欲しい本</span>
+          </Link>
+          <Link
+            href="/add"
+            className="flex flex-col items-center justify-center py-1 text-neutral-400 hover:text-neutral-200 transition"
+          >
+            <Plus className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">登録</span>
+          </Link>
+          <Link
+            href="/settings"
+            className="flex flex-col items-center justify-center py-1 text-neutral-400 hover:text-neutral-200 transition"
+          >
+            <Settings className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] font-medium">設定・CSV</span>
+          </Link>
+        </div>
+      </nav>
     </div>
   );
 }
