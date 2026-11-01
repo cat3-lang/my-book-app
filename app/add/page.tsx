@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { BookOpen, Search, ArrowLeft, Check, AlertCircle, Loader2 } from "lucide-react";
+import { BookOpen, Search, ArrowLeft, Check, AlertCircle, Loader2, Camera } from "lucide-react";
 
 export default function AddBookPage() {
   const router = useRouter();
@@ -28,88 +28,11 @@ export default function AddBookPage() {
   const [fetchMsg, setFetchMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // 1. 国立国会図書館 (NDL API) からの書誌情報取得処理
-  const fetchFromNDL = async (cleanIsbn: string) => {
-    const ndlUrl = `https://iss.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
-    const res = await fetch(ndlUrl);
-    if (!res.ok) return null;
-
-    const xmlText = await res.text();
-    const parser = new DOMParser();
-    const xmlDoc = parser.parseFromString(xmlText, "text/xml");
-    const item = xmlDoc.querySelector("item");
-
-    if (!item) return null;
-
-    const fetchedTitle = item.querySelector("title")?.textContent || "";
-    const fetchedAuthor = item.querySelector("author")?.textContent || "";
-    const fetchedPublisher = item.querySelector("publisher")?.textContent || "";
-    const fetchedPubDate = item.querySelector("pubDate")?.textContent || item.querySelector("date")?.textContent || "";
-    const fetchedDescription = item.querySelector("description")?.textContent || "";
-
-    // 発売日フォーマット調整 (YYYY-MM-DD)
-    let formattedDate = "";
-    if (fetchedPubDate) {
-      const match = fetchedPubDate.match(/\d{4}-\d{2}-\d{2}/) || fetchedPubDate.match(/\d{4}\d{2}\d{2}/);
-      if (match) {
-        const raw = match[0].replace(/-/g, "");
-        if (raw.length === 8) {
-          formattedDate = `${raw.substring(0, 4)}-${raw.substring(4, 6)}-${raw.substring(6, 8)}`;
-        }
-      }
-    }
-
-    return {
-      title: fetchedTitle,
-      authors: fetchedAuthor,
-      publisher: fetchedPublisher,
-      releaseDate: formattedDate,
-      summary: fetchedDescription,
-      source: "国立国会図書館 (NDL)",
-    };
-  };
-
-  // 2. OpenBD からの取得（フォールバック用）
-  const fetchFromOpenBD = async (cleanIsbn: string) => {
-    const res = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data || !data[0]) return null;
-
-    const b = data[0].summary;
-    return {
-      title: b?.title || "",
-      authors: b?.author || "",
-      publisher: b?.publisher || "",
-      releaseDate: b?.pubdate || "",
-      summary: data[0].summary?.gesch || data[0].summary?.description || "",
-      source: "OpenBD",
-    };
-  };
-
-  // 3. Google Books からの取得（最終フォールバック用）
-  const fetchFromGoogleBooks = async (cleanIsbn: string) => {
-    const res = await fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${cleanIsbn}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (!data.items || data.items.length === 0) return null;
-
-    const info = data.items[0].volumeInfo;
-    return {
-      title: info.title || "",
-      authors: info.authors ? info.authors.join(", ") : "",
-      publisher: info.publisher || "",
-      releaseDate: info.publishedDate || "",
-      summary: info.description || "",
-      source: "Google Books",
-    };
-  };
-
-  // ISBN自動取得ハンドラー（国会図書館優先）
+  // ISBN自動取得ハンドラー（サーバーAPI経由でCORS回避）
   const handleAutoFetch = async () => {
     const cleanIsbn = isbnInput.replace(/[^0-9X]/gi, "").trim();
     if (!cleanIsbn || (cleanIsbn.length !== 10 && cleanIsbn.length !== 13)) {
-      setFetchMsg({ type: "error", text: "13桁または10桁のISBNコード（半角数字）を入力してください。" });
+      setFetchMsg({ type: "error", text: "有効なISBNを入力してください。" });
       return;
     }
 
@@ -117,40 +40,30 @@ export default function AddBookPage() {
     setFetchMsg(null);
 
     try {
-      // 国立国会図書館を優先検索
-      let bookData = await fetchFromNDL(cleanIsbn);
+      const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`);
+      const data = await res.json();
 
-      // ヒットしない場合は OpenBD
-      if (!bookData) {
-        bookData = await fetchFromOpenBD(cleanIsbn);
-      }
-
-      // さらにヒットしない場合は Google Books
-      if (!bookData) {
-        bookData = await fetchFromGoogleBooks(cleanIsbn);
-      }
-
-      if (bookData) {
-        if (bookData.title) setTitle(bookData.title);
-        if (bookData.authors) setAuthors(bookData.authors);
-        if (bookData.publisher) setPublisher(bookData.publisher);
-        if (bookData.releaseDate) setReleaseDate(bookData.releaseDate);
-        if (bookData.summary) setSummary(bookData.summary);
+      if (data && data.success) {
+        if (data.title) setTitle(data.title);
+        if (data.authors) setAuthors(data.authors);
+        if (data.publisher) setPublisher(data.publisher);
+        if (data.releaseDate) setReleaseDate(data.releaseDate);
+        if (data.summary) setSummary(data.summary);
         setIsbn(cleanIsbn);
 
         setFetchMsg({
           type: "success",
-          text: `【${bookData.source}】から書籍情報を取得し、フォームに自動入力しました！`,
+          text: "書籍情報を自動取得しました！",
         });
       } else {
         setFetchMsg({
           type: "error",
-          text: "該当する書籍情報が見つかりませんでした。手動でご入力ください。",
+          text: "該当する書籍が見つかりませんでした。",
         });
       }
     } catch (err) {
       console.error(err);
-      setFetchMsg({ type: "error", text: "通信エラーが発生しました。ネットワーク状況をご確認ください。" });
+      setFetchMsg({ type: "error", text: "取得に失敗しました。" });
     } finally {
       setFetching(false);
     }
@@ -196,7 +109,7 @@ export default function AddBookPage() {
   };
 
   return (
-    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-20">
+    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-28">
       {/* ヘッダー */}
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-4 py-3 md:px-8">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
@@ -215,13 +128,24 @@ export default function AddBookPage() {
       <main className="max-w-2xl mx-auto px-4 py-6 space-y-6">
         {/* ISBN自動取得エリア */}
         <div className="bg-paper-card border border-paper-border p-4 md:p-5 rounded-none space-y-3 shadow-sm">
-          <h2 className="text-xs font-bold text-paper-text-main flex items-center gap-1.5 border-b border-paper-border pb-2">
-            <Search className="w-4 h-4 text-paper-caramel" /> ISBNバーコード自動取得（国会図書館優先）
-          </h2>
+          <div className="flex items-center justify-between border-b border-paper-border pb-2">
+            <h2 className="text-xs font-bold text-paper-text-main flex items-center gap-1.5">
+              <Search className="w-4 h-4 text-paper-caramel" /> ISBN自動取得
+            </h2>
+            {/* カメラ読み取り機能へのダミー/導線 */}
+            <button
+              type="button"
+              onClick={() => alert("カメラによるバーコード読み取り機能は準備中です")}
+              className="text-xs text-paper-caramel flex items-center gap-1 bg-paper-sub px-2.5 py-1 border border-paper-border hover:bg-paper-border font-bold cursor-pointer"
+            >
+              <Camera className="w-3.5 h-3.5" /> カメラ読取
+            </button>
+          </div>
+
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder="例: 9784041109229（13桁数字）"
+              placeholder="例: 9784041109229"
               value={isbnInput}
               onChange={(e) => setIsbnInput(e.target.value)}
               className="flex-1 bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main placeholder-paper-text-muted focus:outline-none focus:border-paper-caramel font-mono"
@@ -255,17 +179,17 @@ export default function AddBookPage() {
           )}
         </div>
 
-        {/* 手動入力・確認フォーム */}
+        {/* 登録フォーム */}
         <form onSubmit={handleSubmit} className="bg-paper-card border border-paper-border p-4 md:p-6 space-y-4 shadow-sm">
           <div className="border-b border-paper-border pb-2">
-            <h2 className="text-xs font-bold text-paper-text-main">書籍詳細情報</h2>
+            <h2 className="text-xs font-bold text-paper-text-main">登録情報</h2>
           </div>
 
-          {/* ステータス選択 */}
+          {/* 登録先（シンプル表示） */}
           <div>
-            <label className="text-xs text-paper-text-sub block mb-1 font-bold">登録先</label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-1.5 text-sm text-paper-text-main cursor-pointer font-bold">
+            <label className="text-xs text-paper-text-sub block mb-1 font-bold">保存先</label>
+            <div className="flex gap-6">
+              <label className="flex items-center gap-2 text-sm text-paper-text-main cursor-pointer font-bold">
                 <input
                   type="radio"
                   name="status"
@@ -274,9 +198,9 @@ export default function AddBookPage() {
                   onChange={() => setStatus("持っている")}
                   className="accent-[#8C5E3C]"
                 />
-                本棚（所有本）
+                本棚
               </label>
-              <label className="flex items-center gap-1.5 text-sm text-paper-text-main cursor-pointer font-bold">
+              <label className="flex items-center gap-2 text-sm text-paper-text-main cursor-pointer font-bold">
                 <input
                   type="radio"
                   name="status"
@@ -285,7 +209,7 @@ export default function AddBookPage() {
                   onChange={() => setStatus("欲しい")}
                   className="accent-[#8C5E3C]"
                 />
-                欲しい本リスト
+                欲しい本
               </label>
             </div>
           </div>
@@ -306,7 +230,7 @@ export default function AddBookPage() {
               />
             </div>
             <div>
-              <label className="text-xs text-paper-text-sub block mb-1 font-bold">フリガナ（ソート用）</label>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">フリガナ</label>
               <input
                 type="text"
                 value={sortTitle}
@@ -330,7 +254,7 @@ export default function AddBookPage() {
               />
             </div>
             <div>
-              <label className="text-xs text-paper-text-sub block mb-1 font-bold">シリーズ名</label>
+              <label className="text-xs text-paper-text-sub block mb-1 font-bold">シリーズ</label>
               <input
                 type="text"
                 value={series}
@@ -390,12 +314,12 @@ export default function AddBookPage() {
 
           {/* あらすじ */}
           <div>
-            <label className="text-xs text-paper-text-sub block mb-1 font-bold">あらすじ・概要</label>
+            <label className="text-xs text-paper-text-sub block mb-1 font-bold">あらすじ</label>
             <textarea
               rows={3}
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
-              placeholder="あらすじが入ります"
+              placeholder="あらすじ"
               className="w-full bg-paper-inner border border-paper-border p-2.5 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel leading-relaxed"
             />
           </div>
@@ -407,7 +331,7 @@ export default function AddBookPage() {
               rows={2}
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
-              placeholder="自由にメモを残せます"
+              placeholder="メモ"
               className="w-full bg-paper-inner border border-paper-border p-2.5 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel leading-relaxed"
             />
           </div>
@@ -419,7 +343,7 @@ export default function AddBookPage() {
               disabled={submitting}
               className="w-full bg-paper-caramel hover:opacity-90 text-white font-bold py-3 text-sm transition shadow-sm cursor-pointer disabled:opacity-50"
             >
-              {submitting ? "登録中..." : "この内容で登録する"}
+              {submitting ? "登録中..." : "登録する"}
             </button>
           </div>
         </form>
