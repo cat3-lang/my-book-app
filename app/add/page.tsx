@@ -6,6 +6,9 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Search, BookOpen, Check, Calendar, Layers, ExternalLink } from "lucide-react";
 
+// 🔄 更新のたびに数字を増やしてデプロイ確認に使うバージョン番号
+const APP_VERSION = "v1.0.1";
+
 type ExistingBookInfo = {
   title: string;
   created_at: string;
@@ -56,7 +59,7 @@ export default function AddBookPage() {
     setSortTitle(hiraganaToKatakana(val));
   };
 
-  // サーバーサイド（APIルート）を経由して国会図書館データを安全に取得
+  // サーバーサイド（APIルート）を経由して国会図書館データを取得
   const handleFetchByIsbn = async () => {
     const cleanIsbn = isbn.trim().replace(/-/g, "");
     if (!cleanIsbn) {
@@ -89,9 +92,11 @@ export default function AddBookPage() {
       setSeries(data.seriesTitle || "");
       setAuthors(data.creator || "");
       setPublisher(data.publisher || "");
-      if (data.ndlUrl) setNdlUrl(data.ndlUrl);
+      
+      // 一旦URLの自動代入を外し、空にするか手動入力にするテスト
+      // setNdlUrl(data.ndlUrl || "");
 
-      setErrorMessage("※国会図書館から情報を取得しました。");
+      setErrorMessage("※国会図書館から情報を取得しました（URLなしテスト中）。");
 
     } catch (err) {
       console.error(err);
@@ -136,7 +141,7 @@ export default function AddBookPage() {
         authors: authors.trim() || null,
         publisher: publisher.trim() || null,
         published_date: publishedDate.trim() || null,
-        image_link: ndlUrl.trim() || null, // 国会図書館URLを格納
+        image_link: ndlUrl.trim() || null, 
         isbn: cleanIsbn || null,
         status: status,
         created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
@@ -171,7 +176,12 @@ export default function AddBookPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>本棚に戻る</span>
           </Link>
-          <h1 className="text-base font-bold tracking-wider text-neutral-100">本を登録する</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-base font-bold tracking-wider text-neutral-100">本を登録する</h1>
+            <span className="text-[10px] bg-neutral-800 text-neutral-400 px-1.5 py-0.5 rounded">
+              {APP_VERSION}
+            </span>
+          </div>
           <div className="w-16" />
         </div>
       </header>
