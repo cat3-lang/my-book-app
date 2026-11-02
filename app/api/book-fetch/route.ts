@@ -11,8 +11,7 @@ export async function GET(request: Request) {
   const cleanIsbn = isbn.replace(/[^0-9X]/gi, "").trim();
 
   try {
-    // 1. 国立国会図書館サーチ (NDL OpenSearch API) 【最優先】
-    // 正式なエンドポイントURLを使用
+    // 1. 国立国会図書館サーチ (NDL OpenSearch API)
     const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
     const ndlRes = await fetch(ndlUrl, {
       headers: {
@@ -23,12 +22,10 @@ export async function GET(request: Request) {
     if (ndlRes.ok) {
       const xmlText = await ndlRes.text();
 
-      // 各項目をXMLタグ（名前空間含む）から正規表現で安全に抽出
       const titleMatch = xmlText.match(/<title>(.*?)<\/title>/);
       const creatorMatch = xmlText.match(/<dc:creator>(.*?)<\/dc:creator>/);
       const publisherMatch = xmlText.match(/<dc:publisher>(.*?)<\/dc:publisher>/);
       
-      // 発売日: dcterms:issued または dc:date から取得
       const issuedMatch = xmlText.match(/<dcterms:issued[^>]*>(.*?)<\/dcterms:issued>/);
       const dateMatch = xmlText.match(/<dc:date[^>]*>(.*?)<\/dc:date>/);
       const rawDate = (issuedMatch ? issuedMatch[1] : null) || (dateMatch ? dateMatch[1] : null) || "";
@@ -41,14 +38,30 @@ export async function GET(request: Request) {
           .replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1")
           .trim();
 
-        // 簡易的な巻数抽出の正規表現
+        // タイトル末尾につく "- 国立国会図書館サーチ..." などを完全に削除
+        rawTitle = rawTitle.replace(/\s*-\s*国立国会図書館サーチ.*$/, "").trim();
+
+        // 巻数の自動抽出
         let extractedVolume = "";
         const volumeMatch = rawTitle.match(/(?:第?\s*(\d+)\s*巻|\(\s*(\d+)\s*\)|\[\s*(\d+)\s*\]|\s+(\d+)\s*$)/);
         if (volumeMatch) {
           extractedVolume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3] || volumeMatch[4];
         }
 
-        // 発売日の整形 (YYYY-MM-DD 形式に統一)
+        // 著者名のカンマを「スペース」に置き換える（点をなくす）
+        let cleanCreator = creatorMatch 
+          ? creatorMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
+          : "";
+        cleanCreator = cleanCreator.replace(/,\s*/g, " "); // ここで点をなくしスペースに変更（くっつけたい場合は "" に変更してください）
+
+        const cleanPublisher = publisherMatch 
+          ? publisherMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
+          : "";
+        const cleanDesc = descMatch 
+          ? descMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
+          : "";
+
+        // 発売日の整形
         let formattedDate = "";
         if (rawDate) {
           const digits = rawDate.match(/\d+/g);
@@ -59,16 +72,6 @@ export async function GET(request: Request) {
             formattedDate = `${year}-${month}-${day}`;
           }
         }
-
-        const cleanCreator = creatorMatch 
-          ? creatorMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
-          : "";
-        const cleanPublisher = publisherMatch 
-          ? publisherMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
-          : "";
-        const cleanDesc = descMatch 
-          ? descMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").trim() 
-          : "";
 
         return NextResponse.json({
           success: true,
@@ -94,11 +97,14 @@ export async function GET(request: Request) {
           formattedPubDate = `${rawPubDate.substring(0, 4)}-${rawPubDate.substring(4, 6)}-${rawPubDate.substring(6, 8)}`;
         }
 
+        let authors = b.author || "";
+        authors = authors.replace(/,\s*/g, " "); // こちらも点をなくす
+
         return NextResponse.json({
           success: true,
           title: b.title || "",
           volume: "",
-          authors: b.author || "",
+          authors: authors,
           publisher: b.publisher || "",
           releaseDate: formattedPubDate,
           summary: data[0].summary?.gesch || data[0].summary?.description || "",
