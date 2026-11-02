@@ -1,124 +1,85 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
+
+// 厳密に特定のXMLタグの「中身」だけを安全に抽出するヘルパー関数
+function extractTagContent(xml: string, tagName: string): string {
+  const regex = new RegExp(`<${tagName}[^>]*>([^]*?)</${tagName}>`, 'i');
+  const match = xml.match(regex);
+  if (!match) return '';
+  
+  let content = match[1]
+    .replace(/<!\[CDATA\[([^]*?)\]\]>/g, '$1') // CDATAセクションの除去
+    .replace(/<\/?[^>]+(>|$)/g, "")           // 残ったHTMLタグの除去
+    .trim();
+
+  if (tagName === 'title') {
+    content = content.replace(/\s*-\s*国立国会図書館サーチ.*/i, '');
+  }
+  
+  return content;
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const isbn = searchParams.get("isbn");
+  const isbn = searchParams.get('isbn')?.replace(/-/g, '');
 
-  if (!isbn) {
-    return NextResponse.json({ success: false, error: "ISBN is required" }, { status: 400 });
+  if (!isbn || (isbn.length !== 10 && isbn.length !== 13)) {
+    return NextResponse.json({ success: false, error: '不正なISBNコードです。' }, { status: 400 });
   }
 
-  const cleanIsbn = isbn.replace(/[^0-9X]/gi, "").trim();
-
   try {
-    // 1. 国立国会図書館サーチ (NDL OpenSearch API)
-    const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${cleanIsbn}`;
-    const ndlRes = await fetch(ndlUrl, {
-      headers: {
-        "User-Agent": "BookManagerApp/1.0 (Family Book Manager)",
-      },
+    // 正しいNDLサーチのOpenSearch APIエンドポイント
+    const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}`;
+    const response = await fetch(ndlUrl, {
+      headers: { 'Accept': 'application/xml', 'User-Agent': 'BookManagerApp/1.0' },
+      next: { revalidate: 3600 }
     });
 
-    if (ndlRes.ok) {
-      const xmlText = await ndlRes.text();
-
-      // 各タグを確実に対象にするための正規表現（名前空間やCDATA、余分な空白に対応）
-      const titleMatch = xmlText.match(/<title>(.*?)<\/title>/s);
-      const creatorMatch = xmlText.match(/<dc:creator>(.*?)<\/dc:creator>/s) || xmlText.match(/<author>(.*?)<\/author>/s);
-      const publisherMatch = xmlText.match(/<dc:publisher>(.*?)<\/dc:publisher>/s) || xmlText.match(/<publisher>(.*?)<\/publisher>/s);
-      
-      const issuedMatch = xmlText.match(/<dcterms:issued[^>]*>(.*?)<\/dcterms:issued>/s);
-      const dateMatch = xmlText.match(/<dc:date[^>]*>(.*?)<\/dc:date>/s) || xmlText.match(/<pubDate>(.*?)<\/pubDate>/s);
-      const rawDate = (issuedMatch ? issuedMatch[1] : null) || (dateMatch ? dateMatch[1] : null) || "";
-
-      const descMatch = xmlText.match(/<description>(.*?)<\/description>/s);
-
-      if (titleMatch && titleMatch[1]) {
-        let rawTitle = titleMatch[1]
-          .replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1")
-          .replace(/<\/?[^>]+(>|$)/g, "")
-          .trim();
-
-        // 末尾につくシステム名などをカット
-        rawTitle = rawTitle.replace(/\s*-\s*国立国会図書館サーチ.*$/, "").trim();
-
-        // 巻数の自動抽出（タイトル末尾の " (2巻)" や " 第2巻" などを検知）
-        let extractedVolume = "";
-        const volumeMatch = rawTitle.match(/(?:第?\s*([0-9０-９一二三四五六七八九十]+)\s*巻|\(\s*([0-9０-９一二三四五六七八九十]+)\s*\)|\[\s*([0-9０-９一二三四五六七八九十]+)\s*\])/);
-        if (volumeMatch) {
-          extractedVolume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3];
-        }
-
-        // 著者名（カンマをスペースに変換）
-        let cleanCreator = creatorMatch 
-          ? creatorMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").replace(/<\/?[^>]+(>|$)/g, "").trim() 
-          : "";
-        cleanCreator = cleanCreator.replace(/,\s*/g, " ");
-
-        // 発行社
-        let cleanPublisher = publisherMatch 
-          ? publisherMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").replace(/<\/?[^>]+(>|$)/g, "").trim() 
-          : "";
-
-        // あらすじ（description）
-        let cleanDesc = descMatch 
-          ? descMatch[1].replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1").replace(/<\/?[^>]+(>|$)/g, "").trim() 
-          : "";
-
-        // 発売日の整形 (YYYY-MM-DD)
-        let formattedDate = "";
-        if (rawDate) {
-          const digits = rawDate.match(/\d+/g);
-          if (digits && digits.length >= 1) {
-            const year = digits[0];
-            const month = digits[1] ? digits[1].padStart(2, "0") : "01";
-            const day = digits[2] ? digits[2].padStart(2, "0") : "01";
-            formattedDate = `${year}-${month}-${day}`;
-          }
-        }
-
-        return NextResponse.json({
-          success: true,
-          title: rawTitle,
-          volume: extractedVolume,
-          authors: cleanCreator,
-          publisher: cleanPublisher,
-          releaseDate: formattedDate,
-          summary: cleanDesc,
-        });
-      }
+    if (!response.ok) {
+      throw new Error('国立国会図書館APIへのアクセスに失敗しました。');
     }
 
-    // 2. OpenBD API 【フォールバック】
-    const openBdRes = await fetch(`https://api.openbd.jp/v1/get?isbn=${cleanIsbn}`);
-    if (openBdRes.ok) {
-      const data = await openBdRes.json();
-      if (data && data[0] && data[0].summary) {
-        const b = data[0].summary;
-        let rawPubDate = b.pubdate || "";
-        let formattedPubDate = "";
-        if (rawPubDate.length === 8) {
-          formattedPubDate = `${rawPubDate.substring(0, 4)}-${rawPubDate.substring(4, 6)}-${rawPubDate.substring(6, 8)}`;
-        }
+    const xmlText = await response.text();
 
-        let authors = b.author || "";
-        authors = authors.replace(/,\s*/g, " ");
+    const itemMatch = xmlText.match(/<item[^>]*>([^]*?)<\/item>/i);
+    if (!itemMatch) {
+      return NextResponse.json({ success: false, error: '該当する書籍が見つかりませんでした。' });
+    }
+    const itemXml = itemMatch[1];
 
-        return NextResponse.json({
-          success: true,
-          title: b.title || "",
-          volume: "",
-          authors: authors,
-          publisher: b.publisher || "",
-          releaseDate: formattedPubDate,
-          summary: data[0].summary?.gesch || data[0].summary?.description || "",
-        });
-      }
+    // --- 各項目の厳密な抽出 ---
+    const title = extractTagContent(itemXml, 'title');
+    const sortTitle = extractTagContent(itemXml, 'dcndl:titleTranscription');
+    const series = extractTagContent(itemXml, 'dcndl:seriesTitle');
+    const authors = extractTagContent(itemXml, 'dc:creator');
+    const publisher = extractTagContent(itemXml, 'dc:publisher');
+    const summary = extractTagContent(itemXml, 'description');
+
+    let releaseDate = extractTagContent(itemXml, 'dc:date');
+    if (!releaseDate) releaseDate = extractTagContent(itemXml, 'dcterms:issued');
+    releaseDate = releaseDate.replace(/[.\/]/g, '-');
+    if (/^\d{4}-\d{2}$/.test(releaseDate)) releaseDate += '-01';
+    if (/^\d{4}$/.test(releaseDate)) releaseDate += '-01-01';
+
+    let volume = '';
+    const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\(（](\d+)[\)）]|\b(\d+)\s*巻)/);
+    if (volumeMatch) {
+      volume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3];
     }
 
-    return NextResponse.json({ success: false, error: "Book not found" }, { status: 404 });
-  } catch (err) {
-    console.error("API Route Error:", err);
-    return NextResponse.json({ success: false, error: "Server error" }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      title,
+      sortTitle: sortTitle || title,
+      volume,
+      series,
+      authors,
+      publisher,
+      releaseDate,
+      summary
+    });
+
+  } catch (error: any) {
+    console.error('Book fetch error:', error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }
