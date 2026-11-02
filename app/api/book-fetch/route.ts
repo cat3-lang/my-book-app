@@ -1,14 +1,12 @@
 import { NextResponse } from 'next/server';
 
-// 厳密に特定のXMLタグの「中身」だけを安全に抽出するヘルパー関数
 function extractTagContent(xml: string, tagName: string): string {
   const regex = new RegExp(`<${tagName}[^>]*>([^]*?)</${tagName}>`, 'i');
   const match = xml.match(regex);
   if (!match) return '';
   
   let content = match[1]
-    .replace(/<!\[CDATA\[([^]*?)\]\]>/g, '$1') // CDATAセクションの除去
-    .replace(/<\/?[^>]+(>|$)/g, "")           // 残ったHTMLタグの除去
+    .replace(/<!\[CDATA\[([^]*?)\]\]>/g, '$1') .replace(/<\/?[^>]+(>\vert{}$)/g, "")
     .trim();
 
   if (tagName === 'title') {
@@ -27,7 +25,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 正しいNDLサーチのOpenSearch APIエンドポイント
     const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}`;
     const response = await fetch(ndlUrl, {
       headers: { 'Accept': 'application/xml', 'User-Agent': 'BookManagerApp/1.0' },
@@ -46,24 +43,37 @@ export async function GET(request: Request) {
     }
     const itemXml = itemMatch[1];
 
-    // --- 各項目の厳密な抽出 ---
     const title = extractTagContent(itemXml, 'title');
-    const sortTitle = extractTagContent(itemXml, 'dcndl:titleTranscription');
-    const series = extractTagContent(itemXml, 'dcndl:seriesTitle');
-    const authors = extractTagContent(itemXml, 'dc:creator');
-    const publisher = extractTagContent(itemXml, 'dc:publisher');
-    const summary = extractTagContent(itemXml, 'description');
+    let sortTitle = extractTagContent(itemXml, 'dcndl:titleTranscription') || extractTagContent(itemXml, 'titleTranscription');
+    
+    let series = extractTagContent(itemXml, 'dcndl:seriesTitle') || extractTagContent(itemXml, 'seriesTitle');
+    if (!series) {
+      const seriesMatch = title.match(/^[【\[（](.+?)[】\]）]/);
+      if (seriesMatch) series = seriesMatch[1];
+    }
+
+    let authors = extractTagContent(itemXml, 'dc:creator') || extractTagContent(itemXml, 'author');
+    authors = authors.replace(/,\s*/g, ' ').replace(/\s*[著]\s*/g, '').trim();
+
+    const publisher = extractTagContent(itemXml, 'dc:publisher') || extractTagContent(itemXml, 'publisher');
+    
+    let summary = extractTagContent(itemXml, 'description');
+    if (summary.includes("タイトル：") || summary.includes("責任表示：")) {
+      const cleanDescParts = summary.split(/タイトル：|責任表示：|NDC/);
+      summary = cleanDescParts.length > 1 ? cleanDescParts[0].trim() : "";
+    }
 
     let releaseDate = extractTagContent(itemXml, 'dc:date');
     if (!releaseDate) releaseDate = extractTagContent(itemXml, 'dcterms:issued');
+    if (!releaseDate) releaseDate = extractTagContent(itemXml, 'pubDate');
     releaseDate = releaseDate.replace(/[.\/]/g, '-');
     if (/^\d{4}-\d{2}$/.test(releaseDate)) releaseDate += '-01';
     if (/^\d{4}$/.test(releaseDate)) releaseDate += '-01-01';
 
     let volume = '';
-    const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\(（](\d+)[\)）]|\b(\d+)\s*巻)/);
+    const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\(（](\d+)[\)）]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
     if (volumeMatch) {
-      volume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3];
+      volume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3] || volumeMatch[4];
     }
 
     return NextResponse.json({
