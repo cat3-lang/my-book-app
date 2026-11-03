@@ -4,11 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, Loader2, AlertCircle, ArrowUp, ArrowDown, Trash2, Star } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, Search, Loader2, AlertCircle, Trash2, Star, MapPin } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.63";
+const APP_VERSION = "v1.0.67";
 
 type ExistingBookInfo = {
   id: string;
@@ -25,6 +25,7 @@ type ExistingBookInfo = {
   publisher?: string | null;
   release_date?: string | null;
   rating?: number | null;
+  location?: string | null;
 };
 
 export default function AddBookPage() {
@@ -43,10 +44,24 @@ export default function AddBookPage() {
   const [memo, setMemo] = useState("");
   const [registeredDate, setRegisteredDate] = useState("");
   const [rating, setRating] = useState<number>(0);
+  const [location, setLocation] = useState<string>("");
+
+  // 既存の本のデータから登録済みロケーションリストを自動取得
+  const [existingLocations, setExistingLocations] = useState<string[]>([]);
 
   useEffect(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     setRegisteredDate(todayStr);
+
+    // 登録済みの置き場所一覧を取得して選択肢にする
+    const fetchLocations = async () => {
+      const { data } = await supabase.from("books").select("location");
+      if (data) {
+        const uniqueLocs = Array.from(new Set(data.map(b => b.location).filter(Boolean))) as string[];
+        setExistingLocations(uniqueLocs);
+      }
+    };
+    fetchLocations();
   }, []);
 
   const [loading, setLoading] = useState(false);
@@ -71,6 +86,7 @@ export default function AddBookPage() {
     setReleaseDate("");
     setMemo("");
     setRating(0);
+    setLocation("");
     setExistingBook(null);
     setCheckMessage(null);
     setSuccessMessage("");
@@ -94,7 +110,7 @@ export default function AddBookPage() {
     try {
       const { data: foundData } = await supabase
         .from("books")
-        .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, release_date, rating")
+        .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, release_date, rating, location")
         .eq("isbn", cleanIsbn)
         .single();
 
@@ -106,6 +122,7 @@ export default function AddBookPage() {
         setStatus(foundData.status || "持っている");
         setMemo(foundData.memo || "");
         setRating(foundData.rating || 0);
+        setLocation(foundData.location || "");
         if (foundData.volume) setVolume(foundData.volume);
         if (foundData.series) setSeries(foundData.series);
         if (foundData.authors) setAuthors(foundData.authors);
@@ -229,6 +246,7 @@ export default function AddBookPage() {
           status: status,
           memo: memo.trim() || null,
           rating: rating,
+          location: location.trim() || null,
         })
         .eq("id", existingBook.id);
 
@@ -250,6 +268,7 @@ export default function AddBookPage() {
           created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
           memo: memo.trim() || null,
           rating: rating,
+          location: location.trim() || null,
         },
       ]);
 
@@ -261,8 +280,6 @@ export default function AddBookPage() {
       }
     }
     setLoading(false);
-
-    // 登録ボタンを押したら上部にスクロールしてメッセージを表示
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -322,7 +339,6 @@ export default function AddBookPage() {
               <BookOpen className="w-3.5 h-3.5 text-paper-caramel" /> 書籍詳細
             </h2>
 
-            {/* ステータス */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -344,7 +360,6 @@ export default function AddBookPage() {
               </button>
             </div>
 
-            {/* 登録日 ＆ お気に入り評価 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
@@ -380,7 +395,7 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* ISBN ＆ 読み取り ＆ 自動取得 */}
+            {/* ISBN ＆ 自動取得 */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
               <div className="flex gap-2 items-center">
@@ -438,7 +453,6 @@ export default function AddBookPage() {
               )}
             </div>
 
-            {/* タイトル ＆ フリガナ */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-paper-border">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">
@@ -466,7 +480,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* サブタイトル ＆ 巻数 */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-3">
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">サブタイトル</label>
@@ -488,7 +501,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 著者名 ＆ 発行所（発行者を発行所に変更） */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">著者名</label>
@@ -510,7 +522,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 発行月 ＆ シリーズ名 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
@@ -536,7 +547,26 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* メモ */}
+            {/* 置き場所（選択式 ＆ 自由入力） */}
+            <div>
+              <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-paper-caramel" /> 置き場所
+              </label>
+              <input
+                type="text"
+                list="location-list"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="選択肢から選ぶか、直接入力してください"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
+              />
+              <datalist id="location-list">
+                {existingLocations.map((loc) => (
+                  <option key={loc} value={loc} />
+                ))}
+              </datalist>
+            </div>
+
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">メモ</label>
               <textarea

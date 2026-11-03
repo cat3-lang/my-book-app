@@ -3,10 +3,10 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown, ArrowUpDown, MapPin } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.66";
+const APP_VERSION = "v1.0.67";
 
 type Book = {
   id: string;
@@ -23,6 +23,7 @@ type Book = {
   release_date: string | null;
   created_at: string;
   rating?: number | null;
+  location?: string | null;
 };
 
 type GroupedBook = {
@@ -64,6 +65,9 @@ export default function HomePage() {
 
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Book>>({});
+
+  // 既存の本から登録されている「置き場所」の選択肢リストを自動生成
+  const existingLocations = Array.from(new Set(books.map(b => b.location).filter(Boolean))) as string[];
 
   const fetchBooks = async () => {
     setLoading(true);
@@ -128,6 +132,7 @@ export default function HomePage() {
       release_date: editForm.release_date || null,
       memo: editForm.memo || null,
       rating: editForm.rating || 0,
+      location: editForm.location || null,
     };
 
     const { error } = await supabase
@@ -176,7 +181,8 @@ export default function HomePage() {
       (b.authors && b.authors.toLowerCase().includes(q)) ||
       (b.publisher && b.publisher.toLowerCase().includes(q)) ||
       (b.memo && b.memo.toLowerCase().includes(q)) ||
-      (b.isbn && b.isbn.toLowerCase().includes(q))
+      (b.isbn && b.isbn.toLowerCase().includes(q)) ||
+      (b.location && b.location.toLowerCase().includes(q))
     );
   });
 
@@ -271,7 +277,6 @@ export default function HomePage() {
       </div>
 
       <main className="max-w-4xl mx-auto px-2 md:px-6 py-4 space-y-3">
-        {/* 五十音 ＆ ★ タブ ＋ 並び替えセレクト */}
         <div className="bg-paper-card border border-paper-border p-2 shadow-sm space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none flex-1">
@@ -312,7 +317,7 @@ export default function HomePage() {
               <Search className="w-4 h-4 text-paper-text-sub absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="タイトル、ふりがな、著者、メモ等で検索..."
+                placeholder="タイトル、ふりがな、著者、置き場所等で検索..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-paper-inner border border-paper-border pl-9 pr-3 py-1.5 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel"
@@ -350,7 +355,6 @@ export default function HomePage() {
                       </div>
                     )}
 
-                    {/* 親タイトル行：クリックで折りたたみ展開 */}
                     <div
                       className="p-3 hover:bg-paper-sub/60 transition cursor-pointer flex items-center justify-between gap-2 border-t border-paper-border"
                       onClick={() => setExpandedTitle(isExpanded ? null : group.title)}
@@ -516,14 +520,32 @@ export default function HomePage() {
                                         </div>
                                       </div>
 
-                                      <div>
-                                        <label className="text-[10px] text-paper-text-sub block font-bold">シリーズ名</label>
-                                        <input
-                                          type="text"
-                                          value={editForm.series || ""}
-                                          onChange={(e) => setEditForm({ ...editForm, series: e.target.value })}
-                                          className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full"
-                                        />
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                          <label className="text-[10px] text-paper-text-sub block font-bold">シリーズ名</label>
+                                          <input
+                                            type="text"
+                                            value={editForm.series || ""}
+                                            onChange={(e) => setEditForm({ ...editForm, series: e.target.value })}
+                                            className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full"
+                                          />
+                                        </div>
+                                        <div>
+                                          <label className="text-[10px] text-paper-text-sub block font-bold">置き場所</label>
+                                          <input
+                                            type="text"
+                                            list="edit-location-list"
+                                            value={editForm.location || ""}
+                                            onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                                            placeholder="選択または自由入力"
+                                            className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full"
+                                          />
+                                          <datalist id="edit-location-list">
+                                            {existingLocations.map((loc) => (
+                                              <option key={loc} value={loc} />
+                                            ))}
+                                          </datalist>
+                                        </div>
                                       </div>
 
                                       <div>
@@ -564,7 +586,7 @@ export default function HomePage() {
                                       </div>
                                     </div>
                                   ) : (
-                                    /* 通常表示：独立した枠 / シリーズ名下行 / メモ */
+                                    /* 通常表示：置き場所を明確に表示 */
                                     <div className="space-y-2 text-xs">
                                       <div className="grid grid-cols-2 gap-2 items-center">
                                         <div>
@@ -596,11 +618,21 @@ export default function HomePage() {
                                         </div>
                                       </div>
 
-                                      <div className="pt-1 border-t border-paper-border/50">
-                                        <span className="text-paper-text-sub block font-bold text-[10px]">シリーズ名</span>
-                                        <span className="text-paper-text-main text-xs block break-words">
-                                          {book.series || "ー"}
-                                        </span>
+                                      <div className="grid grid-cols-2 gap-2 items-center pt-1 border-t border-paper-border/50">
+                                        <div>
+                                          <span className="text-paper-text-sub block font-bold text-[10px]">シリーズ名</span>
+                                          <span className="text-paper-text-main text-xs block break-words">
+                                            {book.series || "ー"}
+                                          </span>
+                                        </div>
+                                        <div>
+                                          <span className="text-paper-text-sub block font-bold text-[10px] flex items-center gap-1">
+                                            <MapPin className="w-3 h-3 text-paper-caramel" /> 置き場所
+                                          </span>
+                                          <span className="text-paper-text-main text-xs block break-words font-medium">
+                                            {book.location || "未設定"}
+                                          </span>
+                                        </div>
                                       </div>
 
                                       <div className="pt-1 border-t border-paper-border/50">
