@@ -303,9 +303,9 @@ export default function HomePage() {
                 onChange={(e) => setSortOrder(e.target.value as any)}
                 className="bg-paper-sub border border-paper-border text-xs text-paper-text-main px-2 py-1 focus:outline-none cursor-pointer font-bold"
               >
-                <option value="title">五十音順</option>
-                <option value="date_desc">登録日 (新しい順)</option>
-                <option value="date_asc">登録日 (古い順)</option>
+                <option value="title">五十音</option>
+                <option value="date_desc">登録日 (新)</option>
+                <option value="date_asc">登録日 (古)</option>
               </select>
             </div>
           </div>

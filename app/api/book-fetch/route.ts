@@ -66,7 +66,7 @@ export async function GET(request: Request) {
         title = title.replace(/(?:第\s*\d+\s*巻|[\[〔（\(]\d+[\]〕）\)]|vol\.?\s*\d+|\b\d+\s*巻)/i, '').trim();
       }
     }
-    if (!volume) volume = '1（単）';
+    if (!volume) volume = '1(単)';
 
     const subTitle = extractSubTitle(itemXml);
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || title;

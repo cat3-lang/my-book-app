@@ -6,9 +6,10 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Download, Upload, RefreshCw, FileText, Check, AlertCircle, Loader2, Database, Info } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.60";
+const APP_VERSION = "v1.0.68";
 
-const CSV_HEADER = "isbn,title,sub_title,sort_title,volume,series,authors,publisher,release_date,status,created_at,memo";
+// CSVヘッダーに rating と location を追加
+const CSV_HEADER = "isbn,title,sub_title,sort_title,volume,series,authors,publisher,release_date,status,created_at,memo,rating,location";
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
@@ -18,7 +19,7 @@ export default function SettingsPage() {
   const handleDownloadSampleCsv = () => {
     const sampleRows = [
       CSV_HEADER,
-      '9784800272829,転生して田舎でスローライフをおくりたい,王都で貴族交流会,テンセイシテイナカデスローライフオクリタイ,3,宝島社,錬金王,宝島社,2017-07,持っている,2026-11-03,サンプルデータ'
+      '9784800272829,転生して田舎でスローライフをおくりたい,王都で貴族交流会,テンセイシテイナカデスローライフオクリタイ,3,宝島社,錬金王,宝島社,2017-07,持っている,2026-11-03,サンプルデータ,5,リビング本棚 A-1'
     ].join("\n");
 
     const blob = new Blob(["\uFEFF" + sampleRows], { type: "text/csv;charset=utf-8;" });
@@ -68,7 +69,9 @@ export default function SettingsPage() {
           escape(b.release_date),
           escape(b.status),
           escape(b.created_at ? new Date(b.created_at).toISOString().split("T")[0] : ""),
-          escape(b.memo)
+          escape(b.memo),
+          escape(b.rating ?? 0),
+          escape(b.location)
         ].join(",");
       });
 
@@ -153,6 +156,8 @@ export default function SettingsPage() {
             status: cols[9] === "欲しい" ? "欲しい" : "持っている",
             created_at: cols[10] ? new Date(cols[10]).toISOString() : new Date().toISOString(),
             memo: cols[11] || null,
+            rating: cols[12] ? parseInt(cols[12], 10) : 0,
+            location: cols[13] || null,
           });
         }
 
@@ -259,7 +264,6 @@ export default function SettingsPage() {
           </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* ① 追加用インポート */}
             <div className="border border-paper-border p-3.5 bg-paper-inner space-y-2">
               <h3 className="text-xs font-bold text-paper-text-main">① 追加用インポート</h3>
               <p className="text-[11px] text-paper-text-sub leading-relaxed">
@@ -279,7 +283,6 @@ export default function SettingsPage() {
               </label>
             </div>
 
-            {/* ② バックアップ復元インポート（赤みを抑えたシックな色味に変更） */}
             <div className="border border-paper-border p-3.5 bg-paper-inner space-y-2">
               <h3 className="text-xs font-bold text-[#8C4A4A]">② バックアップ復元インポート</h3>
               <p className="text-[11px] text-paper-text-sub leading-relaxed">
@@ -301,7 +304,6 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* 3. 保留項目・ステータス */}
         <section className="bg-paper-card border border-paper-border p-5 space-y-2 shadow-sm">
           <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider flex items-center gap-1.5 border-b border-paper-border pb-2">
             <Info className="w-3.5 h-3.5 text-paper-caramel" /> 今後の改善メモ（未実装リスト）
