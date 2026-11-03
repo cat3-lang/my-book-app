@@ -55,7 +55,7 @@ export async function GET(request: Request) {
       volume = '1（単）';
     }
 
-    // サブタイトル（その他のタイトル）の強力な抽出
+    // サブタイトル（その他のタイトル）の抽出
     let subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || 
                    extractScopedTag(itemXml, 'alternative') || 
                    extractScopedTag(itemXml, 'dcndl:subTitle') || 
@@ -63,7 +63,6 @@ export async function GET(request: Request) {
                    
     let title = rawTitle;
 
-    // もし専用タグに無ければ、タイトル内のコロンやダッシュ、括弧などで分割
     if (!subTitle) {
       const parts = rawTitle.split(/[:：\s*[-–—〜〜]\s*]/).filter(Boolean);
       if (parts.length > 1) {
@@ -72,7 +71,7 @@ export async function GET(request: Request) {
       }
     }
 
-    // フリガナ（タイトル読み）
+    // フリガナ
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || extractScopedTag(itemXml, 'titleTranscription') || title;
     sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
 
@@ -90,11 +89,10 @@ export async function GET(request: Request) {
     // 発行者
     const publisher = extractScopedTag(itemXml, 'dc:publisher') || extractScopedTag(itemXml, 'publisher');
 
-    // 発行日（年月などの文字列をそのまま保持できるようにテキストとして取得）
+    // 発行日（「2026年11月」や「2017-07」などの柔軟なテキスト対応）
     let releaseDate = extractScopedTag(itemXml, 'dcterms:issued') || 
                       extractScopedTag(itemXml, 'dc:date') || 
                       extractScopedTag(itemXml, 'pubDate') || '';
-    // 表記揺れ（2017.11 や 2017/11）をハイフンに整える（例: 2017-11）
     releaseDate = releaseDate.replace(/[.\/]/g, '-').trim();
 
     return NextResponse.json({

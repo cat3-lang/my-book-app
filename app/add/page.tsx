@@ -7,10 +7,11 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, Loader2, AlertCircle, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.54";
+const APP_VERSION = "v1.0.55";
 
 type ExistingBookInfo = {
   id: string;
+  isbn: string | null;
   title: string;
   sub_title?: string | null;
   sort_title: string | null;
@@ -94,7 +95,7 @@ export default function AddBookPage() {
     try {
       const { data: foundData } = await supabase
         .from("books")
-        .select("id, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, release_date")
+        .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, release_date")
         .eq("isbn", cleanIsbn)
         .single();
 
@@ -229,6 +230,7 @@ export default function AddBookPage() {
       const { error } = await supabase
         .from("books")
         .update({
+          isbn: cleanIsbn || null,
           title: title.trim(),
           sub_title: subTitle.trim() || null,
           sort_title: sortTitle.trim() || title.trim(),
@@ -250,6 +252,7 @@ export default function AddBookPage() {
     } else {
       const { error } = await supabase.from("books").insert([
         {
+          isbn: cleanIsbn || null,
           title: title.trim(),
           sub_title: subTitle.trim() || null,
           sort_title: sortTitle.trim() || title.trim(),
@@ -258,7 +261,6 @@ export default function AddBookPage() {
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
           release_date: releaseDate.trim() || null,
-          isbn: cleanIsbn || null,
           status: status,
           created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
           memo: memo.trim() || null,
@@ -385,7 +387,7 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 3. ISBN ＆ 読み取り ＆ 自動取得ボタン */}
+            {/* 3. ISBN ＆ 読み取り ＆ 自動取得ボタン（一番上へ配置） */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
               <div className="flex gap-2 items-center">
@@ -515,7 +517,7 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 発行日（テキスト入力に変更し、年月にも対応） ＆ シリーズ名 */}
+            {/* 発行日 ＆ シリーズ名 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
@@ -523,7 +525,7 @@ export default function AddBookPage() {
                 </label>
                 <input
                   type="text"
-                  placeholder="2017-07 または 2017-07-01 等"
+                  placeholder="2026年11月 または 2017-07 等"
                   value={releaseDate}
                   onChange={(e) => setReleaseDate(e.target.value)}
                   className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
