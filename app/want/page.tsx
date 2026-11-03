@@ -7,7 +7,7 @@ import { ArrowLeft, Plus, ChevronDown, ChevronRight, Trash2, Edit3, Heart, User,
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.71";
+const APP_VERSION = "v1.0.72";
 
 type WantBook = {
   id: string;
@@ -15,8 +15,8 @@ type WantBook = {
   authors: string | null;
   publisher: string | null;
   isbn: string | null;
-  status: string; // '欲しい'
-  rating: number; // 1〜5
+  status: string;
+  rating: number;
   requester: string | null;
   memo: string | null;
   image_url: string | null;
@@ -48,11 +48,16 @@ export default function WantBookPage() {
   // 画像拡大モーダル用
   const [zoomedImage, setZoomedImage] = useState<string | null>(null);
 
-  // カメラ読み取り用
+  // バーコードスキャナー用
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+
+  // 写真撮影カメラモーダル用
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchWantBooks = async () => {
     setLoading(true);
@@ -133,7 +138,7 @@ export default function WantBookPage() {
     }
   };
 
-  // カメラバーコードスキャンの開始
+  // バーコードスキャン開始
   const startScanner = async () => {
     setIsScanning(true);
     setTimeout(async () => {
@@ -147,19 +152,16 @@ export default function WantBookPage() {
             if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
               setForm(prev => ({ ...prev, isbn: decodedText }));
               stopScanner();
-              // 自動取得も実行
-              setTimeout(() => {
-                handleAutoFetchIsbn();
-              }, 200);
+              setTimeout(() => handleAutoFetchIsbn(), 200);
             }
           },
           () => {}
         );
       } catch (err) {
-        alert("カメラを起動できませんでした。");
+        alert("カメラを起動できませんでした。ブラウザのカメラ権限をご確認ください。");
         setIsScanning(false);
       }
-    }, 100);
+    }, 150);
   };
 
   const stopScanner = async () => {
@@ -173,8 +175,53 @@ export default function WantBookPage() {
     setIsScanning(false);
   };
 
-  // 写真ファイル選択・撮影のハンドラ
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 写真撮影カメラ開始（アプリ内プレビュー付きライブカメラ）
+  const startPhotoCamera = async () => {
+    setIsCameraActive(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      mediaStreamRef.current = stream;
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      }, 100);
+    } catch (err) {
+      alert("カメラを起動できませんでした。");
+      setIsCameraActive(false);
+    }
+  };
+
+  const stopPhotoCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsCameraActive(false);
+  };
+
+  // シャッターを切る
+  const takePhoto = () => {
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        setForm(prev => ({ ...prev, image_url: dataUrl }));
+      }
+    }
+    stopPhotoCamera();
+  };
+
+  // ファイル選択
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -197,7 +244,7 @@ export default function WantBookPage() {
       authors: form.authors.trim() || null,
       publisher: form.publisher.trim() || null,
       isbn: form.isbn.trim() || null,
-      status: form.status.trim() || "欲しい",
+      status: "欲しい",
       rating: form.rating,
       requester: form.requester.trim() || null,
       memo: form.memo.trim() || null,
@@ -253,17 +300,41 @@ export default function WantBookPage() {
         </div>
       </header>
 
-      {/* カメラ読み取りモーダル */}
+      {/* バーコード読み取り用モーダル */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 relative shadow-xl">
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-sm font-bold text-paper-text-main">バーコードを枠内に合わせてください</h2>
-              <button type="button" onClick={stopScanner} className="p-1 text-paper-text-sub bg-paper-sub border border-paper-border">
+              <button type="button" onClick={stopScanner} className="p-1 text-paper-text-sub bg-paper-sub border border-paper-border cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div id="reader-want" className="w-full overflow-hidden bg-black"></div>
+          </div>
+        </div>
+      )}
+
+      {/* 写真撮影用ライブカメラモーダル */}
+      {isCameraActive && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-3">
+          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 relative shadow-xl space-y-3">
+            <div className="flex justify-between items-center">
+              <h2 className="text-sm font-bold text-paper-text-main">写真を撮影</h2>
+              <button type="button" onClick={stopPhotoCamera} className="p-1 text-paper-text-sub bg-paper-sub border border-paper-border cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="relative w-full h-80 bg-black overflow-hidden flex items-center justify-center border border-paper-border">
+              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover"></video>
+            </div>
+            <button
+              type="button"
+              onClick={takePhoto}
+              className="w-full py-3 bg-paper-caramel text-white font-bold text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md"
+            >
+              <Camera className="w-5 h-5" /> <span>シャッターを切る</span>
+            </button>
           </div>
         </div>
       )}
@@ -275,7 +346,7 @@ export default function WantBookPage() {
             <button
               type="button"
               onClick={() => setZoomedImage(null)}
-              className="absolute -top-10 right-0 text-white bg-black/50 p-1.5 rounded-full hover:bg-black"
+              className="absolute -top-10 right-0 text-white bg-black/50 p-1.5 rounded-full hover:bg-black cursor-pointer"
             >
               <X className="w-6 h-6" />
             </button>
@@ -328,7 +399,6 @@ export default function WantBookPage() {
                   onClick={() => toggleExpand(book.id)}
                   className="bg-paper-card border border-paper-border p-3 shadow-xs transition hover:bg-paper-sub/40 cursor-pointer space-y-2"
                 >
-                  {/* 1段目: 投稿日 ｜ 件名 ＆ 状態 */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="text-paper-caramel shrink-0">
@@ -346,7 +416,6 @@ export default function WantBookPage() {
                     )}
                   </div>
 
-                  {/* 2段目: 欲しい度（キャラメル色のハート） ＆ 希望者 */}
                   <div className="flex items-center justify-between pl-6 text-xs text-paper-text-sub">
                     <div className="flex items-center gap-0.5">
                       {[1, 2, 3, 4, 5].map((star) => (
@@ -368,7 +437,6 @@ export default function WantBookPage() {
                     )}
                   </div>
 
-                  {/* 詳細表示エリア */}
                   {isExpanded && (
                     <div className="mt-3 pt-3 border-t border-paper-border bg-paper-inner p-3 space-y-3" onClick={(e) => e.stopPropagation()}>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -450,13 +518,12 @@ export default function WantBookPage() {
               <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider">
                 {editingId ? "編集" : "本を追加"}
               </h2>
-              <button type="button" onClick={() => setIsModalOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main">
+              <button type="button" onClick={() => setIsModalOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSave} className="space-y-3 text-xs">
-              {/* ISBN ＆ カメラ読み取り ＆ 自動取得 */}
               <div>
                 <label className="block font-bold text-paper-text-sub mb-1">ISBN</label>
                 <div className="flex gap-2">
@@ -505,7 +572,6 @@ export default function WantBookPage() {
                     value={form.status}
                     onChange={(e) => setForm({ ...form, status: e.target.value })}
                     className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main font-bold"
-                    placeholder="例: 予約中 など"
                   />
                 </div>
                 <div>
@@ -519,7 +585,6 @@ export default function WantBookPage() {
                 </div>
               </div>
 
-              {/* 欲しい度：キャラメル色ハート */}
               <div>
                 <label className="block font-bold text-paper-text-sub mb-1">欲しい度</label>
                 <div className="flex items-center gap-1 py-1 cursor-pointer">
@@ -563,7 +628,7 @@ export default function WantBookPage() {
                 </div>
               </div>
 
-              {/* 写真の選択・撮影ボタンの分離 ＆ プレビュー ＆ 拡大 */}
+              {/* 写真の選択・撮影ボタン（プレビュー・拡大対応） */}
               <div>
                 <label className="block font-bold text-paper-text-sub mb-1">写真</label>
                 <div className="flex items-center gap-2">
@@ -577,7 +642,7 @@ export default function WantBookPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => cameraInputRef.current?.click()}
+                    onClick={startPhotoCamera}
                     className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main text-xs flex items-center gap-1 cursor-pointer"
                   >
                     <Camera className="w-3.5 h-3.5 text-paper-caramel" />
@@ -587,15 +652,7 @@ export default function WantBookPage() {
                     type="file"
                     ref={fileInputRef}
                     accept="image/*"
-                    onChange={handleImageChange}
-                    className="hidden"
-                  />
-                  <input
-                    type="file"
-                    ref={cameraInputRef}
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handleImageChange}
+                    onChange={handleImageFileChange}
                     className="hidden"
                   />
                 </div>
