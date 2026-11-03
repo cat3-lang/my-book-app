@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText, Loader2, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.49";
+const APP_VERSION = "v1.0.50";
 
 type ExistingBookInfo = {
   id: string;
@@ -343,7 +343,7 @@ export default function AddBookPage() {
               <BookOpen className="w-3.5 h-3.5 text-paper-caramel" /> 書籍詳細
             </h2>
 
-            {/* 1. 一番上：ステータス */}
+            {/* 1. ステータス */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -446,8 +446,6 @@ export default function AddBookPage() {
                 </div>
               )}
             </div>
-
-            {/* --- ご指定順序のフォーム項目 --- */}
 
             {/* タイトル ＆ フリガナ */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-paper-border">
@@ -557,7 +555,7 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* メモ欄（一番下に戻しました） */}
+            {/* メモ欄（一番下） */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">メモ</label>
               <textarea
