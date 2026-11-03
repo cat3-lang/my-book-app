@@ -4,10 +4,10 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText, Loader2, AlertCircle, ArrowUp, ArrowDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText, Loader2, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.45";
+const APP_VERSION = "v1.0.46";
 
 type ExistingBookInfo = {
   id: string;
@@ -75,7 +75,6 @@ export default function AddBookPage() {
     if (!sortTitle) setSortTitle(val);
   };
 
-  // フォームクリア付きの自動取得・読取前処理
   const handleAutoFetchAndCheck = async (targetIsbn?: string) => {
     const cleanIsbn = (targetIsbn !== undefined ? targetIsbn : isbn).trim();
     if (!cleanIsbn) {
@@ -84,7 +83,7 @@ export default function AddBookPage() {
       return;
     }
 
-    // 自動取得・読取時はまずフォームを一旦綺麗にクリアする
+    // 読み取り・自動取得時はフォームを一旦クリア
     setTitle("");
     setSortTitle("");
     setVolume("");
@@ -152,7 +151,6 @@ export default function AddBookPage() {
   };
 
   const startScanner = async () => {
-    // 読取開始時もフォームをクリア
     clearForm();
     setIsScanning(true);
     setErrorMessage("");
@@ -207,7 +205,6 @@ export default function AddBookPage() {
     };
   }, []);
 
-  // 登録・上書き保存（ページ遷移せずその場にとどまる）
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -276,10 +273,6 @@ export default function AddBookPage() {
     setLoading(false);
   };
 
-  // スクロール操作用ヘルパー
-  const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
-  const scrollToBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
-
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-32 relative">
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-4 py-3 md:px-8">
@@ -323,7 +316,7 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* 画面右側のフローティングスクロールボタン */}
+      {/* 画面右側のフローティングスクロールボタン（上・下・トップ） */}
       <div className="fixed right-4 bottom-28 z-20 flex flex-col gap-2">
         <button
           type="button"
@@ -343,11 +336,11 @@ export default function AddBookPage() {
         </button>
         <button
           type="button"
-          onClick={scrollToTop}
-          className="w-10 h-10 bg-paper-caramel text-white shadow-md flex items-center justify-center hover:opacity-90 transition cursor-pointer text-xs font-bold"
-          title="トップ"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="w-10 h-10 bg-paper-caramel text-white shadow-md flex items-center justify-center hover:opacity-95 transition cursor-pointer text-[10px] font-bold"
+          title="トップへ"
         >
-          <ChevronUp className="w-4 h-4" />
+          TOP
         </button>
       </div>
 
@@ -372,7 +365,7 @@ export default function AddBookPage() {
               <BookOpen className="w-3.5 h-3.5 text-paper-caramel" /> 書籍詳細
             </h2>
 
-            {/* 1. ステータス（見出しなし、ボタンのみ） */}
+            {/* 1. 一番上：ステータス（見出しなし、ボタンのみ） */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -398,34 +391,32 @@ export default function AddBookPage() {
               </button>
             </div>
 
-            {/* 2. 登録日 */}
+            {/* 2. 2番目：登録日 と その右側に「本を登録」ボタン（小さめサイズ） */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
                 <Calendar className="w-3 h-3 text-paper-caramel" /> 登録日
               </label>
-              <input
-                type="date"
-                value={registeredDate}
-                onChange={(e) => setRegisteredDate(e.target.value)}
-                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
-              />
-            </div>
-
-            {/* 3. ISBN ＆ 読み取り */}
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="block text-xs font-bold text-paper-text-sub">ISBN</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="date"
+                  value={registeredDate}
+                  onChange={(e) => setRegisteredDate(e.target.value)}
+                  className="flex-1 bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+                />
                 <button
-                  type="button"
-                  onClick={startScanner}
-                  className="cursor-pointer text-xs text-paper-text-main bg-paper-sub hover:bg-paper-border px-3 py-1.5 border border-paper-border flex items-center gap-1.5 transition font-bold shadow-2xs"
+                  type="submit"
+                  disabled={loading}
+                  className="px-4 py-2 bg-paper-caramel text-white text-xs font-bold hover:opacity-90 transition cursor-pointer whitespace-nowrap shadow-2xs flex items-center gap-1"
                 >
-                  <Camera className="w-3.5 h-3.5 text-paper-caramel" />
-                  <span>読み取り</span>
+                  {existingBook ? <RefreshCw className="w-3 h-3" /> : null}
+                  <span>本を登録</span>
                 </button>
               </div>
+            </div>
 
-              {/* 自動取得ボタン（真ん中・長め）と横の小さな本を登録ボタン */}
+            {/* 3. ISBN ＆ 真横に読み取りボタン */}
+            <div>
+              <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
               <div className="flex gap-2 items-center">
                 <input
                   type="text"
@@ -436,20 +427,11 @@ export default function AddBookPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => handleAutoFetchAndCheck()}
-                  disabled={fetching}
-                  className="px-6 py-2 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold transition flex items-center justify-center gap-1.5 border border-paper-border cursor-pointer shadow-2xs whitespace-nowrap flex-grow"
+                  onClick={startScanner}
+                  className="cursor-pointer text-xs text-paper-text-main bg-paper-sub hover:bg-paper-border px-4 py-2 border border-paper-border flex items-center gap-1.5 transition font-bold shadow-2xs whitespace-nowrap"
                 >
-                  {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-paper-caramel" />}
-                  <span>{fetching ? "取得中..." : "自動取得"}</span>
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-3 py-2 bg-paper-caramel text-white text-xs font-bold hover:opacity-90 transition cursor-pointer whitespace-nowrap shadow-2xs flex items-center gap-1"
-                >
-                  {existingBook ? <RefreshCw className="w-3 h-3" /> : null}
-                  <span>本を登録</span>
+                  <Camera className="w-3.5 h-3.5 text-paper-caramel" />
+                  <span>読み取り</span>
                 </button>
               </div>
 
@@ -478,6 +460,19 @@ export default function AddBookPage() {
                 onChange={(e) => setMemo(e.target.value)}
                 className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel leading-relaxed"
               />
+            </div>
+
+            {/* メモ欄の下：横長の自動取得ボタン */}
+            <div>
+              <button
+                type="button"
+                onClick={() => handleAutoFetchAndCheck()}
+                disabled={fetching}
+                className="w-full py-2.5 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold transition flex items-center justify-center gap-1.5 border border-paper-border cursor-pointer shadow-2xs"
+              >
+                {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-paper-caramel" />}
+                <span>{fetching ? "取得中..." : "自動取得"}</span>
+              </button>
             </div>
 
             {/* タイトル ＆ 巻数 */}
@@ -578,12 +573,12 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 一番下の「本を登録」ボタン（少し大きめ） */}
+            {/* 一番下：少し大きめの「本を登録」ボタン */}
             <div className="pt-4">
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-4 font-bold text-base transition cursor-pointer disabled:opacity-50 shadow-sm flex items-center justify-center gap-2 bg-paper-caramel text-white hover:opacity-90 rounded-none"
+                className="w-full py-4 font-bold text-base transition cursor-pointer disabled:opacity-50 shadow-sm flex items-center justify-center gap-2 bg-paper-caramel text-white hover:opacity-95 rounded-none"
               >
                 {existingBook ? <RefreshCw className="w-5 h-5" /> : null}
                 {loading ? "処理中..." : existingBook ? "この内容でデータを更新（上書き）する" : "本を登録"}

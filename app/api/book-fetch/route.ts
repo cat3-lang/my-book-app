@@ -25,6 +25,7 @@ export async function GET(request: Request) {
   }
 
   try {
+    // 正しい国立国会図書館サーチのOpenSearch APIエンドポイント
     const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}`;
     const response = await fetch(ndlUrl, {
       headers: { 'Accept': 'application/xml', 'User-Agent': 'BookManagerApp/1.0' },
@@ -43,17 +44,33 @@ export async function GET(request: Request) {
     }
     const itemXml = itemMatch[1];
 
-    // 1. タイトル
+    // --- 1. タイトル ＆ 8. 巻数（2段構えの連動補正ロジック） ---
     let title = extractTagContent(itemXml, 'title');
     title = title.replace(/\s*-\s*国立国会図書館サーチ.*/i, '').trim();
 
+    let volume = extractScopedTag(itemXml, 'dcndl:volumeTitle') || extractScopedTag(itemXml, 'dcndl:volume') || '';
+
+    if (!volume) {
+      const joinedVolumeMatch = title.match(/[\s ]+(\d+)\s*$/);
+      if (joinedVolumeMatch) {
+        volume = joinedVolumeMatch[1];
+        title = title.replace(/[\s ]+(\d+)\s*$/, '').trim();
+      } else {
+        const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\((](\d+)[\))]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
+        if (volumeMatch) {
+          volume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3] || volumeMatch[4];
+        }
+      }
+    }
+
     // 2. フリガナ（タイトル読み）
-    const sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || extractScopedTag(itemXml, 'titleTranscription') || title;
+    let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || extractScopedTag(itemXml, 'titleTranscription') || title;
+    sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
 
     // 3. シリーズ名
     let series = extractScopedTag(itemXml, 'dcndl:seriesTitle') || extractScopedTag(itemXml, 'seriesTitle');
     if (!series) {
-      const seriesMatch = title.match(/^[【\[（](.+?)[】\]）]/);
+      const seriesMatch = title.match(/^[【\[(](.+?)[】\])]/);
       if (seriesMatch) series = seriesMatch[1];
     }
 
@@ -66,9 +83,12 @@ export async function GET(request: Request) {
 
     // 6. あらすじ (description)
     let summary = extractScopedTag(itemXml, 'description');
-    if (summary.includes("タイトル：") || summary.includes("責任表示：")) {
-      const cleanDescParts = summary.split(/タイトル：|責任表示：|NDC/);
-      summary = cleanDescParts.length > 1 ? cleanDescParts[0].trim() : "";
+    if (summary.includes("タイトル：") || summary.includes("責任表示：") || summary.includes("タイトル:") || summary.includes("責任表示:")) {
+      const cleanDescParts = summary.split(/タイトル：|責任表示：|タイトル:|責任表示:|概要：|概要:|NDC/);
+      summary = cleanDescParts[0].trim();
+    }
+    if (!summary || summary.length < 5) {
+      summary = extractScopedTag(itemXml, 'dcndl:abstract') || summary;
     }
 
     // 7. 発売日
@@ -78,15 +98,6 @@ export async function GET(request: Request) {
     releaseDate = releaseDate.replace(/[.\/]/g, '-');
     if (/^\d{4}-\d{2}$/.test(releaseDate)) releaseDate += '-01';
     if (/^\d{4}$/.test(releaseDate)) releaseDate += '-01-01';
-
-    // 8. 巻数（dcndl:volumeTitle から直接取得、フォールバックとしてタイトルからも解析）
-    let volume = extractScopedTag(itemXml, 'dcndl:volumeTitle');
-    if (!volume) {
-      const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\(（](\d+)[\)）]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
-      if (volumeMatch) {
-        volume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3] || volumeMatch[4];
-      }
-    }
 
     return NextResponse.json({
       success: true,
