@@ -57,18 +57,28 @@ export async function GET(request: Request) {
       volume = '1（単）';
     }
 
-    // その他タイトル（サブタイトル）の確実な取得（alternative全般をキャッチ）
-    let subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || 
-                   extractScopedTag(itemXml, 'dcterms:alternative') || 
-                   extractScopedTag(itemXml, 'alternative') || '';
-                   
-    // もしXMLタグから直接取れない場合のバックアップとして、テキスト全体から alternative タグを探す
-    if (!subTitle) {
-      const altMatch = itemXml.match(/<[^>]*alternative[^>]*>([^<]+)<\/[^>]*alternative>/i);
-      if (altMatch) {
-        subTitle = altMatch[1].trim();
+    // alternative タグが複数ある場合を考慮して確実に取り出す
+let subTitle = '';
+const altMatches = itemXml.match(/<(?:[a-zA-Z0-9]+:)?alternative[^>]*>([^<]+)<\/(?:[a-zA-Z0-9]+:)?alternative>/gi);
+
+if (altMatches && altMatches.length > 0) {
+  for (const altTag of altMatches) {
+    const innerMatch = altTag.match(/>([^<]+)</);
+    if (innerMatch) {
+      const text = innerMatch[1].trim();
+      // アルファベットやローマ字だけの「並列タイトル」を除外し、日本語のサブタイトルらしいものを優先する
+      if (!/^[A-Za-z\s]+$/.test(text)) {
+        subTitle = text;
+        break;
       }
     }
+  }
+  // もし日本語のものが見つからなければ、最初のalternativeをそのまま使う
+  if (!subTitle && altMatches[0]) {
+    const firstMatch = altMatches[0].match(/>([^<]+)</);
+    if (firstMatch) subTitle = firstMatch[1].trim();
+  }
+}
 
     // フリガナ（タイトル読み）
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || 
