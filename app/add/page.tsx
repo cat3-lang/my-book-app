@@ -1,5 +1,6 @@
 "use client";
 
+
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -7,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, Search, Loader2, AlertCircle, Trash2, Star, MapPin } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
+
 
 const APP_VERSION = "v1.0.67";
 
@@ -29,6 +31,18 @@ type ExistingBookInfo = {
 };
 
 export default function AddBookPage() {
+
+  // ログインしていない場合は強制的に /login へ飛ばす処理
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        window.location.href = "/login";
+      }
+    };
+    checkUser();
+  }, []);
+  
   const router = useRouter();
 
   const [isbn, setIsbn] = useState("");

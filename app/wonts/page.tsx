@@ -21,6 +21,18 @@ type Book = {
 };
 
 export default function WantsPage() {
+
+// ログインしていない場合は強制的に /login へ飛ばす処理
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        window.location.href = "/login";
+      }
+    };
+    checkUser();
+  }, []);  
+
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");

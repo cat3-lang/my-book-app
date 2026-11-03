@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Download, Upload, RefreshCw, FileText, Check, AlertCircle, Loader2, Database, Info } from "lucide-react";
@@ -12,9 +12,22 @@ const APP_VERSION = "v1.0.68";
 const CSV_HEADER = "isbn,title,sub_title,sort_title,volume,series,authors,publisher,release_date,status,created_at,memo,rating,location";
 
 export default function SettingsPage() {
+
+  
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+// ログインしていない場合は強制的に /login へ飛ばす処理
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        window.location.href = "/login";
+      }
+    };
+    checkUser();
+  }, []);
 
   const handleDownloadSampleCsv = () => {
     const sampleRows = [
