@@ -3,10 +3,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Plus, ChevronDown, ChevronRight, Trash2, Edit3, Heart, User, Image as ImageIcon, X, ArrowUpDown, Search, Camera, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, ChevronDown, ChevronRight, Trash2, Edit3, Heart, User, Image as ImageIcon, X, ArrowUpDown, Search, Camera, Loader2, Upload } from "lucide-react";
+import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.70";
+const APP_VERSION = "v1.0.71";
 
 type WantBook = {
   id: string;
@@ -14,7 +15,7 @@ type WantBook = {
   authors: string | null;
   publisher: string | null;
   isbn: string | null;
-  status: string;
+  status: string; // '欲しい'
   rating: number; // 1〜5
   requester: string | null;
   memo: string | null;
@@ -37,14 +38,21 @@ export default function WantBookPage() {
     authors: "",
     publisher: "",
     isbn: "",
-    status: "【発売待ち】",
-    rating: 5,
-    requester: "パパ",
+    status: "",
+    rating: 3,
+    requester: "",
     memo: "",
     image_url: "",
   });
 
+  // 画像拡大モーダル用
+  const [zoomedImage, setZoomedImage] = useState<string | null>(null);
+
+  // カメラ読み取り用
+  const [isScanning, setIsScanning] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchWantBooks = async () => {
     setLoading(true);
@@ -75,9 +83,9 @@ export default function WantBookPage() {
       authors: "",
       publisher: "",
       isbn: "",
-      status: "【発売待ち】",
-      rating: 5,
-      requester: "パパ",
+      status: "",
+      rating: 3,
+      requester: "",
       memo: "",
       image_url: "",
     });
@@ -92,9 +100,9 @@ export default function WantBookPage() {
       authors: book.authors || "",
       publisher: book.publisher || "",
       isbn: book.isbn || "",
-      status: book.status || "【発売待ち】",
-      rating: book.rating || 5,
-      requester: book.requester || "パパ",
+      status: book.status || "",
+      rating: book.rating || 3,
+      requester: book.requester || "",
       memo: book.memo || "",
       image_url: book.image_url || "",
     });
@@ -125,8 +133,48 @@ export default function WantBookPage() {
     }
   };
 
-  // 写真選択（ローカルファイル・カメラ撮影）
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // カメラバーコードスキャンの開始
+  const startScanner = async () => {
+    setIsScanning(true);
+    setTimeout(async () => {
+      try {
+        const html5QrCode = new Html5Qrcode("reader-want");
+        scannerRef.current = html5QrCode;
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 100 } },
+          (decodedText) => {
+            if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
+              setForm(prev => ({ ...prev, isbn: decodedText }));
+              stopScanner();
+              // 自動取得も実行
+              setTimeout(() => {
+                handleAutoFetchIsbn();
+              }, 200);
+            }
+          },
+          () => {}
+        );
+      } catch (err) {
+        alert("カメラを起動できませんでした。");
+        setIsScanning(false);
+      }
+    }, 100);
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        if (scannerRef.current.isScanning) await scannerRef.current.stop();
+        scannerRef.current.clear();
+      } catch (e) {}
+      scannerRef.current = null;
+    }
+    setIsScanning(false);
+  };
+
+  // 写真ファイル選択・撮影のハンドラ
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
@@ -140,7 +188,7 @@ export default function WantBookPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) {
-      alert("件名（タイトル）を入力してください。");
+      alert("タイトルを入力してください。");
       return;
     }
 
@@ -149,12 +197,11 @@ export default function WantBookPage() {
       authors: form.authors.trim() || null,
       publisher: form.publisher.trim() || null,
       isbn: form.isbn.trim() || null,
-      status: form.status.trim() || "【発売待ち】",
+      status: form.status.trim() || "欲しい",
       rating: form.rating,
       requester: form.requester.trim() || null,
       memo: form.memo.trim() || null,
       image_url: form.image_url.trim() || null,
-      st_status: "欲しい"
     };
 
     if (editingId) {
@@ -195,9 +242,7 @@ export default function WantBookPage() {
             <ArrowLeft className="w-4 h-4" />
             <span>本棚</span>
           </Link>
-          <h1 className="text-sm font-bold text-paper-text-main flex items-center gap-1.5">
-            <Heart className="w-4 h-4 text-rose-500 fill-rose-500" /> 欲しい本
-          </h1>
+          <h1 className="text-sm font-bold text-paper-text-main">欲しい本</h1>
           <button
             type="button"
             onClick={handleOpenAddModal}
@@ -207,6 +252,37 @@ export default function WantBookPage() {
           </button>
         </div>
       </header>
+
+      {/* カメラ読み取りモーダル */}
+      {isScanning && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 relative shadow-xl">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-sm font-bold text-paper-text-main">バーコードを枠内に合わせてください</h2>
+              <button type="button" onClick={stopScanner} className="p-1 text-paper-text-sub bg-paper-sub border border-paper-border">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div id="reader-want" className="w-full overflow-hidden bg-black"></div>
+          </div>
+        </div>
+      )}
+
+      {/* 画像拡大モーダル */}
+      {zoomedImage && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-3" onClick={() => setZoomedImage(null)}>
+          <div className="relative max-w-2xl max-h-[90vh] w-full flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => setZoomedImage(null)}
+              className="absolute -top-10 right-0 text-white bg-black/50 p-1.5 rounded-full hover:bg-black"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img src={zoomedImage} alt="拡大画像" className="max-w-full max-h-[85vh] object-contain border border-paper-border" />
+          </div>
+        </div>
+      )}
 
       <main className="max-w-3xl mx-auto px-2 md:px-6 py-4 space-y-3">
         <div className="bg-paper-card border border-paper-border p-2.5 flex items-center justify-between shadow-2xs">
@@ -263,12 +339,14 @@ export default function WantBookPage() {
                         {book.title}
                       </div>
                     </div>
-                    <span className="bg-[#EAE2B7] text-[#593922] text-[11px] font-extrabold px-2 py-0.5 border border-[#D9CFAF] shrink-0">
-                      {book.status || "【発売待ち】"}
-                    </span>
+                    {book.status && (
+                      <span className="bg-[#EAE2B7] text-[#593922] text-[11px] font-extrabold px-2 py-0.5 border border-[#D9CFAF] shrink-0">
+                        {book.status}
+                      </span>
+                    )}
                   </div>
 
-                  {/* 2段目: 欲しい度（クリック可能な洗練されたハート） ＆ 希望者 */}
+                  {/* 2段目: 欲しい度（キャラメル色のハート） ＆ 希望者 */}
                   <div className="flex items-center justify-between pl-6 text-xs text-paper-text-sub">
                     <div className="flex items-center gap-0.5">
                       {[1, 2, 3, 4, 5].map((star) => (
@@ -276,25 +354,35 @@ export default function WantBookPage() {
                           key={star}
                           className={`w-3.5 h-3.5 ${
                             (book.rating || 0) >= star
-                              ? "fill-rose-500 text-rose-500"
+                              ? "fill-paper-caramel text-paper-caramel"
                               : "text-gray-300"
                           }`}
                         />
                       ))}
                     </div>
-                    <div className="flex items-center gap-1 font-bold text-paper-text-main bg-paper-sub px-2 py-0.5 border border-paper-border">
-                      <User className="w-3 h-3 text-paper-caramel" />
-                      <span>{book.requester || "家族"}</span>
-                    </div>
+                    {book.requester && (
+                      <div className="flex items-center gap-1 font-bold text-paper-text-main bg-paper-sub px-2 py-0.5 border border-paper-border">
+                        <User className="w-3 h-3 text-paper-caramel" />
+                        <span>{book.requester}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* 詳細表示エリア */}
                   {isExpanded && (
                     <div className="mt-3 pt-3 border-t border-paper-border bg-paper-inner p-3 space-y-3" onClick={(e) => e.stopPropagation()}>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="bg-paper-card border border-paper-border h-36 flex items-center justify-center overflow-hidden">
+                        <div 
+                          className="bg-paper-card border border-paper-border h-36 flex items-center justify-center overflow-hidden cursor-pointer relative group"
+                          onClick={() => book.image_url && setZoomedImage(book.image_url)}
+                        >
                           {book.image_url ? (
-                            <img src={book.image_url} alt={book.title} className="w-full h-full object-cover" />
+                            <>
+                              <img src={book.image_url} alt={book.title} className="w-full h-full object-cover" />
+                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[10px] font-bold">
+                                拡大表示
+                              </div>
+                            </>
                           ) : (
                             <div className="text-center text-paper-text-sub space-y-1">
                               <ImageIcon className="w-6 h-6 mx-auto opacity-40" />
@@ -368,9 +456,9 @@ export default function WantBookPage() {
             </div>
 
             <form onSubmit={handleSave} className="space-y-3 text-xs">
-              {/* ISBN ＆ 自動取得 */}
+              {/* ISBN ＆ カメラ読み取り ＆ 自動取得 */}
               <div>
-                <label className="block font-bold text-paper-text-sub mb-1">ISBN（入力で自動補完が可能）</label>
+                <label className="block font-bold text-paper-text-sub mb-1">ISBN</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -378,6 +466,14 @@ export default function WantBookPage() {
                     onChange={(e) => setForm({ ...form, isbn: e.target.value })}
                     className="flex-1 bg-paper-inner border border-paper-border px-3 py-1.5 text-sm font-mono text-paper-text-main"
                   />
+                  <button
+                    type="button"
+                    onClick={startScanner}
+                    className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-xs text-paper-text-main flex items-center gap-1 cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-paper-caramel" />
+                    <span>読み取り</span>
+                  </button>
                   <button
                     type="button"
                     onClick={handleAutoFetchIsbn}
@@ -391,7 +487,7 @@ export default function WantBookPage() {
               </div>
 
               <div>
-                <label className="block font-bold text-paper-text-sub mb-1">件名（タイトル） *</label>
+                <label className="block font-bold text-paper-text-sub mb-1">タイトル *</label>
                 <input
                   type="text"
                   required
@@ -409,6 +505,7 @@ export default function WantBookPage() {
                     value={form.status}
                     onChange={(e) => setForm({ ...form, status: e.target.value })}
                     className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main font-bold"
+                    placeholder="例: 予約中 など"
                   />
                 </div>
                 <div>
@@ -422,7 +519,7 @@ export default function WantBookPage() {
                 </div>
               </div>
 
-              {/* 欲しい度：5つハート評価（クリックで切り替え） */}
+              {/* 欲しい度：キャラメル色ハート */}
               <div>
                 <label className="block font-bold text-paper-text-sub mb-1">欲しい度</label>
                 <div className="flex items-center gap-1 py-1 cursor-pointer">
@@ -436,7 +533,7 @@ export default function WantBookPage() {
                       <Heart
                         className={`w-5 h-5 ${
                           form.rating >= star
-                            ? "fill-rose-500 text-rose-500"
+                            ? "fill-paper-caramel text-paper-caramel"
                             : "text-gray-300"
                         }`}
                       />
@@ -466,7 +563,7 @@ export default function WantBookPage() {
                 </div>
               </div>
 
-              {/* 写真の保存・指定 */}
+              {/* 写真の選択・撮影ボタンの分離 ＆ プレビュー ＆ 拡大 */}
               <div>
                 <label className="block font-bold text-paper-text-sub mb-1">写真</label>
                 <div className="flex items-center gap-2">
@@ -475,26 +572,50 @@ export default function WantBookPage() {
                     onClick={() => fileInputRef.current?.click()}
                     className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main text-xs flex items-center gap-1 cursor-pointer"
                   >
+                    <Upload className="w-3.5 h-3.5 text-paper-caramel" />
+                    <span>ファイルを選択</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main text-xs flex items-center gap-1 cursor-pointer"
+                  >
                     <Camera className="w-3.5 h-3.5 text-paper-caramel" />
-                    <span>写真を選択 / 撮影</span>
+                    <span>カメラで撮影</span>
                   </button>
                   <input
                     type="file"
                     ref={fileInputRef}
                     accept="image/*"
-                    onChange={handleImageFileChange}
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                  <input
+                    type="file"
+                    ref={cameraInputRef}
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleImageChange}
                     className="hidden"
                   />
                 </div>
                 {form.image_url && (
-                  <div className="mt-2 w-20 h-20 border border-paper-border overflow-hidden relative">
-                    <img src={form.image_url} alt="プレビュー" className="w-full h-full object-cover" />
+                  <div className="mt-2 flex items-center gap-3">
+                    <div 
+                      className="w-20 h-20 border border-paper-border overflow-hidden relative cursor-pointer group"
+                      onClick={() => setZoomedImage(form.image_url)}
+                    >
+                      <img src={form.image_url} alt="プレビュー" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white text-[9px] font-bold">
+                        拡大
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={() => setForm({ ...form, image_url: "" })}
-                      className="absolute top-0 right-0 bg-black/60 text-white p-0.5"
+                      className="text-xs text-paper-danger font-bold hover:underline cursor-pointer"
                     >
-                      <X className="w-3 h-3" />
+                      写真を削除
                     </button>
                   </div>
                 )}
