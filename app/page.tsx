@@ -393,7 +393,7 @@ export default function HomePage() {
                                     className="w-20 text-paper-text-main flex items-center justify-center gap-1 bg-paper-sub hover:bg-paper-border border border-paper-border py-1 font-bold text-xs shrink-0 cursor-pointer"
                                   >
                                     {isBookExpanded ? <ChevronDown className="w-3.5 h-3.5 text-paper-caramel" /> : <ChevronRight className="w-3.5 h-3.5 text-paper-caramel" />}
-                                    <span>{book.volume ? `${book.volume}巻` : "詳細"}</span>
+                                    <span>{book.volume ? `${book.volume}巻` : "1(単)"}</span>
                                   </button>
 
                                   {book.sub_title && (
