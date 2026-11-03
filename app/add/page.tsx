@@ -8,7 +8,7 @@ import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Sea
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.58";
+const APP_VERSION = "v1.0.61";
 
 type ExistingBookInfo = {
   id: string;
@@ -547,16 +547,8 @@ export default function AddBookPage() {
         </form>
       </main>
 
-      import FooterNav from "@/components/FooterNav";
-
-// コンポーネント内の最後のJSX
-return (
-  <div className="...">
-    {/* 画面コンテンツ */}
-    
-    <FooterNav/>
-  </div>
-);
+      {/* フッターナビゲーション */}
+      <FooterNav />
     </div>
   );
 }

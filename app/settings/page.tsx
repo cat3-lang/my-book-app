@@ -6,9 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Download, Upload, RefreshCw, FileText, Check, AlertCircle, Loader2, Database, Info } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.59";
+const APP_VERSION = "v1.0.60";
 
-// CSVヘッダー（最新のテーブル構造）
 const CSV_HEADER = "isbn,title,sub_title,sort_title,volume,series,authors,publisher,release_date,status,created_at,memo";
 
 export default function SettingsPage() {
@@ -16,9 +15,6 @@ export default function SettingsPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  // ==========================================
-  // 1. 見本CSVファイルのダウンロード
-  // ==========================================
   const handleDownloadSampleCsv = () => {
     const sampleRows = [
       CSV_HEADER,
@@ -35,9 +31,6 @@ export default function SettingsPage() {
     document.body.removeChild(link);
   };
 
-  // ==========================================
-  // 2. 一括エクスポート（バックアップデータ）
-  // ==========================================
   const handleExportBackup = async () => {
     setLoading(true);
     setErrorMessage("");
@@ -98,9 +91,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ==========================================
-  // 3. インポート処理（追加 / 復元共通ロジック）
-  // ==========================================
   const handleImportCsv = async (event: React.ChangeEvent<HTMLInputElement>, mode: "append" | "restore") => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -126,7 +116,6 @@ export default function SettingsPage() {
           throw new Error("CSVファイルにデータが含まれていません。");
         }
 
-        // CSV行のパース（簡易ダブルクォーテーション対応）
         const parseCsvLine = (line: string) => {
           const result = [];
           let current = "";
@@ -149,7 +138,7 @@ export default function SettingsPage() {
         const records = [];
         for (let i = 1; i < lines.length; i++) {
           const cols = parseCsvLine(lines[i]);
-          if (!cols[1]) continue; // タイトルが無い行はスキップ
+          if (!cols[1]) continue;
 
           records.push({
             isbn: cols[0] || null,
@@ -171,13 +160,11 @@ export default function SettingsPage() {
           throw new Error("有効なデータが見つかりませんでした。");
         }
 
-        // 復元モードの場合は既存データを削除
         if (mode === "restore") {
           const { error: deleteErr } = await supabase.from("books").delete().neq("id", "00000000-0000-0000-0000-000000000000");
           if (deleteErr) throw deleteErr;
         }
 
-        // データベースへまとめて追加
         const { error: insertErr } = await supabase.from("books").insert(records);
         if (insertErr) throw insertErr;
 
@@ -199,7 +186,6 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-32">
-      {/* ヘッダー */}
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-4 py-3 md:px-8">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Link
@@ -220,7 +206,6 @@ export default function SettingsPage() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8 md:px-8 space-y-6">
-        {/* メッセージ表示 */}
         {successMessage && (
           <div className="p-3 bg-[#E6F4EA] border border-[#A8DADC] text-[#1D3557] text-xs flex items-center gap-2">
             <Check className="w-4 h-4 text-[#2A9D8F] shrink-0" />
@@ -294,14 +279,14 @@ export default function SettingsPage() {
               </label>
             </div>
 
-            {/* ② バックアップ復元インポート */}
+            {/* ② バックアップ復元インポート（赤みを抑えたシックな色味に変更） */}
             <div className="border border-paper-border p-3.5 bg-paper-inner space-y-2">
-              <h3 className="text-xs font-bold text-paper-text-main text-red-700">② バックアップ復元インポート</h3>
+              <h3 className="text-xs font-bold text-[#8C4A4A]">② バックアップ復元インポート</h3>
               <p className="text-[11px] text-paper-text-sub leading-relaxed">
                 全データを一度クリアして、過去のバックアップCSVファイルの状態に丸ごと復元します。
               </p>
               <label className="block mt-2">
-                <span className="w-full py-2 bg-red-800 text-white hover:bg-red-900 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+                <span className="w-full py-2 bg-[#8C4A4A] text-white hover:opacity-90 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
                   <RefreshCw className="w-3.5 h-3.5" /> 復元CSVを選択
                 </span>
                 <input
@@ -327,7 +312,6 @@ export default function SettingsPage() {
         </section>
       </main>
 
-      {/* 共通フッターナビゲーション */}
       <FooterNav />
     </div>
   );
