@@ -4,29 +4,29 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, Loader2, AlertCircle, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, Loader2, AlertCircle, ArrowUp, ArrowDown, Trash2, List } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.56";
+const APP_VERSION = "v1.0.57";
 
-type ExistingBookInfo = {
-  id: string;
-  isbn: string | null;
+type BookCandidate = {
+  isbn: string;
   title: string;
-  sub_title?: string | null;
-  sort_title: string | null;
-  created_at: string;
-  status: "持っている" | "欲しい";
-  memo: string | null;
-  volume?: string | null;
-  series?: string | null;
-  authors?: string | null;
-  publisher?: string | null;
-  release_date?: string | null;
+  subTitle: string;
+  sortTitle: string;
+  volume: string;
+  authors: string;
+  publisher: string;
+  releaseDate: string;
 };
 
 export default function AddBookPage() {
   const router = useRouter();
+
+  const [inputMode, setInputMode] = useState<"isbn" | "title">("isbn");
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [candidates, setCandidates] = useState<BookCandidate[]>([]);
+  const [isSearchingTitle, setIsSearchingTitle] = useState(false);
 
   const [isbn, setIsbn] = useState("");
   const [title, setTitle] = useState("");
@@ -49,7 +49,7 @@ export default function AddBookPage() {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
+  const [existingBook, setExistingBook] = useState<any | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
 
@@ -73,9 +73,45 @@ export default function AddBookPage() {
     setErrorMessage("");
   };
 
-  const handleTitleChange = (val: string) => {
-    setTitle(val);
-    if (!sortTitle) setSortTitle(val);
+  const handleTitleKeywordSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchKeyword.trim()) return;
+
+    setIsSearchingTitle(true);
+    setCandidates([]);
+    setErrorMessage("");
+
+    try {
+      const res = await fetch(`/api/book-fetch?title=${encodeURIComponent(searchKeyword.trim())}`);
+      const data = await res.json();
+      if (data && data.success) {
+        setCandidates(data.books || []);
+        if (data.books.length === 0) {
+          setErrorMessage("該当する書籍が見つかりませんでした。");
+        }
+      } else {
+        setErrorMessage(data.error || "検索に失敗しました。");
+      }
+    } catch (err) {
+      setErrorMessage("通信エラーが発生しました。");
+    } finally {
+      setIsSearchingTitle(false);
+    }
+  };
+
+  const handleSelectCandidate = (book: BookCandidate) => {
+    clearForm();
+    setIsbn(book.isbn);
+    setTitle(book.title);
+    setSubTitle(book.subTitle);
+    setSortTitle(book.sortTitle);
+    setVolume(book.volume);
+    setAuthors(book.authors);
+    setPublisher(book.publisher);
+    setReleaseDate(book.releaseDate);
+    setCandidates([]);
+    setSearchKeyword("");
+    setCheckMessage("✅ 選択した書誌データを反映しました");
   };
 
   const handleAutoFetchAndCheck = async (targetIsbn?: string) => {
@@ -137,24 +173,9 @@ export default function AddBookPage() {
         setCheckMessage("✅ 未登録です（該当データなしのため手動入力してください）");
       }
     } catch (err) {
-      console.error(err);
       setErrorMessage("情報の取得中にエラーが発生しました。");
     } finally {
       setFetching(false);
-    }
-  };
-
-  const handleDeleteExistingBook = async () => {
-    if (!existingBook) return;
-    setLoading(true);
-    const { error } = await supabase.from("books").delete().eq("id", existingBook.id);
-    setLoading(false);
-
-    if (error) {
-      setErrorMessage(`削除に失敗しました: ${error.message}`);
-    } else {
-      setSuccessMessage("データベースから本のデータを削除しました。");
-      clearForm();
     }
   };
 
@@ -168,13 +189,9 @@ export default function AddBookPage() {
       try {
         const html5QrCode = new Html5Qrcode("reader");
         scannerRef.current = html5QrCode;
-
         await html5QrCode.start(
           { facingMode: "environment" },
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 100 },
-          },
+          { fps: 10, qrbox: { width: 250, height: 100 } },
           (decodedText) => {
             if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
               setIsbn(decodedText);
@@ -185,7 +202,6 @@ export default function AddBookPage() {
           () => {}
         );
       } catch (err) {
-        console.error("Camera start error:", err);
         setErrorMessage("カメラを起動できませんでした。");
         setIsScanning(false);
       }
@@ -195,22 +211,16 @@ export default function AddBookPage() {
   const stopScanner = async () => {
     if (scannerRef.current) {
       try {
-        if (scannerRef.current.isScanning) {
-          await scannerRef.current.stop();
-        }
+        if (scannerRef.current.isScanning) await scannerRef.current.stop();
         scannerRef.current.clear();
-      } catch (err) {
-        console.error("Failed to stop scanner", err);
-      }
+      } catch (e) {}
       scannerRef.current = null;
     }
     setIsScanning(false);
   };
 
   useEffect(() => {
-    return () => {
-      stopScanner();
-    };
+    return () => { stopScanner(); };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -223,7 +233,6 @@ export default function AddBookPage() {
     setLoading(true);
     setErrorMessage("");
     setSuccessMessage("");
-
     const cleanIsbn = isbn.trim();
 
     if (existingBook) {
@@ -244,11 +253,8 @@ export default function AddBookPage() {
         })
         .eq("id", existingBook.id);
 
-      if (error) {
-        setErrorMessage(`更新に失敗しました: ${error.message}`);
-      } else {
-        setSuccessMessage("既存のデータを更新しました！");
-      }
+      if (error) setErrorMessage(`更新に失敗しました: ${error.message}`);
+      else setSuccessMessage("既存のデータを更新しました！");
     } else {
       const { error } = await supabase.from("books").insert([
         {
@@ -268,11 +274,8 @@ export default function AddBookPage() {
       ]);
 
       if (error) {
-        if (error.code === "23505") {
-          setErrorMessage("このISBNの本はすでに登録されています。");
-        } else {
-          setErrorMessage(`登録に失敗しました: ${error.message}`);
-        }
+        if (error.code === "23505") setErrorMessage("このISBNの本はすでに登録されています。");
+        else setErrorMessage(`登録に失敗しました: ${error.message}`);
       } else {
         setSuccessMessage("本を登録しました！");
       }
@@ -303,43 +306,17 @@ export default function AddBookPage() {
 
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
-          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-none relative shadow-xl">
+          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 relative shadow-xl">
             <div className="flex justify-between items-center mb-3">
               <h2 className="text-sm font-bold text-paper-text-main">バーコードを枠内に合わせてください</h2>
-              <button
-                type="button"
-                onClick={stopScanner}
-                className="p-1 text-paper-text-sub hover:text-paper-text-main bg-paper-sub border border-paper-border"
-              >
+              <button type="button" onClick={stopScanner} className="p-1 text-paper-text-sub bg-paper-sub border border-paper-border">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div id="reader" className="w-full overflow-hidden rounded-none bg-black"></div>
-            <p className="text-xs text-paper-text-sub text-center mt-3">
-              本の裏表紙にあるバーコードをスキャンします
-            </p>
+            <div id="reader" className="w-full overflow-hidden bg-black"></div>
           </div>
         </div>
       )}
-
-      <div className="fixed right-4 bottom-28 z-20 flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={() => window.scrollBy({ top: -300, behavior: "smooth" })}
-          className="w-10 h-10 bg-paper-card border border-paper-border text-paper-text-main shadow-md flex items-center justify-center hover:bg-paper-sub transition cursor-pointer"
-          title="上へ"
-        >
-          <ArrowUp className="w-4 h-4" />
-        </button>
-        <button
-          type="button"
-          onClick={() => window.scrollBy({ top: 300, behavior: "smooth" })}
-          className="w-10 h-10 bg-paper-card border border-paper-border text-paper-text-main shadow-md flex items-center justify-center hover:bg-paper-sub transition cursor-pointer"
-          title="下へ"
-        >
-          <ArrowDown className="w-4 h-4" />
-        </button>
-      </div>
 
       <main className="max-w-3xl mx-auto px-4 py-8 md:px-8">
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -348,15 +325,41 @@ export default function AddBookPage() {
               <BookOpen className="w-3.5 h-3.5 text-paper-caramel" /> 書籍詳細
             </h2>
 
-            {/* 1. ステータス */}
+            {/* 検索モードの切り替えタブ */}
+            <div className="grid grid-cols-2 gap-2 pb-2">
+              <button
+                type="button"
+                onClick={() => setInputMode("isbn")}
+                className={`py-2 text-xs font-bold border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  inputMode === "isbn"
+                    ? "bg-paper-caramel text-white border-paper-caramel"
+                    : "bg-paper-sub text-paper-text-body border-paper-border hover:bg-paper-border"
+                }`}
+              >
+                <Camera className="w-3.5 h-3.5" />
+                <span>ISBN / バーコードで取得</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputMode("title")}
+                className={`py-2 text-xs font-bold border transition cursor-pointer flex items-center justify-center gap-1.5 ${
+                  inputMode === "title"
+                    ? "bg-paper-caramel text-white border-paper-caramel"
+                    : "bg-paper-sub text-paper-text-body border-paper-border hover:bg-paper-border"
+                }`}
+              >
+                <List className="w-3.5 h-3.5" />
+                <span>タイトル検索して選ぶ</span>
+              </button>
+            </div>
+
+            {/* ステータス */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setStatus("持っている")}
                 className={`py-2 text-xs font-bold border transition cursor-pointer ${
-                  status === "持っている"
-                    ? "bg-paper-caramel text-white border-paper-caramel shadow-2xs"
-                    : "bg-paper-sub text-paper-text-body border-paper-border hover:bg-paper-border"
+                  status === "持っている" ? "bg-paper-caramel text-white border-paper-caramel" : "bg-paper-sub text-paper-text-body border-paper-border"
                 }`}
               >
                 持っている本
@@ -365,16 +368,14 @@ export default function AddBookPage() {
                 type="button"
                 onClick={() => setStatus("欲しい")}
                 className={`py-2 text-xs font-bold border transition cursor-pointer ${
-                  status === "欲しい"
-                    ? "bg-paper-caramel text-white border-paper-caramel shadow-2xs"
-                    : "bg-paper-sub text-paper-text-body border-paper-border hover:bg-paper-border"
+                  status === "欲しい" ? "bg-paper-caramel text-white border-paper-caramel" : "bg-paper-sub text-paper-text-body border-paper-border"
                 }`}
               >
                 欲しい本
               </button>
             </div>
 
-            {/* 2. 登録日 */}
+            {/* 登録日 */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
                 <Calendar className="w-3 h-3 text-paper-caramel" /> 登録日
@@ -383,70 +384,92 @@ export default function AddBookPage() {
                 type="date"
                 value={registeredDate}
                 onChange={(e) => setRegisteredDate(e.target.value)}
-                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main font-mono"
               />
             </div>
 
-            {/* 3. ISBN ＆ 読み取り ＆ 自動取得ボタン */}
-            <div>
-              <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
-              <div className="flex gap-2 items-center">
-                <input
-                  type="text"
-                  placeholder=""
-                  value={isbn}
-                  onChange={(e) => setIsbn(e.target.value)}
-                  className="flex-1 bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main placeholder-paper-text-muted focus:outline-none focus:border-paper-caramel font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={startScanner}
-                  className="cursor-pointer text-xs text-paper-text-main bg-paper-sub hover:bg-paper-border px-4 py-2 border border-paper-border flex items-center gap-1.5 transition font-bold shadow-2xs whitespace-nowrap"
-                >
-                  <Camera className="w-3.5 h-3.5 text-paper-caramel" />
-                  <span>読み取り</span>
-                </button>
-              </div>
-
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => handleAutoFetchAndCheck()}
-                  disabled={fetching}
-                  className="w-full py-2.5 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold transition flex items-center justify-center gap-1.5 border border-paper-border cursor-pointer shadow-2xs"
-                >
-                  {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-paper-caramel" />}
-                  <span>{fetching ? "取得中..." : "自動取得"}</span>
-                </button>
-              </div>
-
-              {checkMessage && (
-                <div className={`mt-2 p-2.5 text-xs border flex items-center justify-between ${
-                  existingBook 
-                    ? "bg-[#FFF3CD] border-[#FFEEBA] text-[#856404]" 
-                    : "bg-[#D4EDDA] border-[#C3E6CB] text-[#155724]"
-                }`}>
-                  <div>
-                    <span>{checkMessage}</span>
-                    {existingBook && (
-                      <p className="mt-0.5 text-[11px]">
-                        （登録日: {new Date(existingBook.created_at).toLocaleDateString()} / ステータス: {existingBook.status}）
-                      </p>
-                    )}
-                  </div>
-                  {existingBook && (
-                    <button
-                      type="button"
-                      onClick={handleDeleteExistingBook}
-                      className="text-[11px] bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 font-bold transition cursor-pointer flex items-center gap-1"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span>データを削除する</span>
-                    </button>
-                  )}
+            {/* ── モード切替に応じた入力エリア ── */}
+            {inputMode === "isbn" ? (
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    value={isbn}
+                    onChange={(e) => setIsbn(e.target.value)}
+                    className="flex-1 bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={startScanner}
+                    className="cursor-pointer text-xs text-paper-text-main bg-paper-sub hover:bg-paper-border px-4 py-2 border border-paper-border flex items-center gap-1.5 font-bold whitespace-nowrap"
+                  >
+                    <Camera className="w-3.5 h-3.5 text-paper-caramel" />
+                    <span>読み取り</span>
+                  </button>
                 </div>
-              )}
-            </div>
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleAutoFetchAndCheck()}
+                    disabled={fetching}
+                    className="w-full py-2.5 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold transition flex items-center justify-center gap-1.5 border border-paper-border cursor-pointer"
+                  >
+                    {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-paper-caramel" />}
+                    <span>{fetching ? "取得中..." : "自動取得"}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">タイトルキーワード検索</label>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    placeholder="例: 転生して田舎で"
+                    value={searchKeyword}
+                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    className="flex-1 bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleTitleKeywordSearch}
+                    disabled={isSearchingTitle}
+                    className="cursor-pointer text-xs text-paper-text-main bg-paper-sub hover:bg-paper-border px-4 py-2 border border-paper-border flex items-center gap-1.5 font-bold whitespace-nowrap"
+                  >
+                    {isSearchingTitle ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-paper-caramel" />}
+                    <span>検索</span>
+                  </button>
+                </div>
+
+                {/* 検索候補リスト */}
+                {candidates.length > 0 && (
+                  <div className="mt-3 border border-paper-border bg-paper-inner max-h-64 overflow-y-auto divide-y divide-paper-border">
+                    <p className="p-2 text-[11px] font-bold text-paper-text-sub bg-paper-sub">候補を選択してください（全 {candidates.length} 件）</p>
+                    {candidates.map((book, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => handleSelectCandidate(book)}
+                        className="p-2.5 hover:bg-paper-card cursor-pointer transition text-xs space-y-1"
+                      >
+                        <p className="font-bold text-paper-text-main">{book.title} {book.subTitle ? `（${book.subTitle}）` : ""}</p>
+                        <p className="text-paper-text-sub text-[11px]">
+                          著者: {book.authors || "不明"} / 出版: {book.publisher || "不明"} ({book.releaseDate || "発行月不明"})
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {checkMessage && (
+              <div className={`mt-2 p-2.5 text-xs border flex items-center justify-between ${
+                existingBook ? "bg-[#FFF3CD] border-[#FFEEBA] text-[#856404]" : "bg-[#D4EDDA] border-[#C3E6CB] text-[#155724]"
+              }`}>
+                <span>{checkMessage}</span>
+              </div>
+            )}
 
             {/* タイトル ＆ フリガナ */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-paper-border">
@@ -458,8 +481,11 @@ export default function AddBookPage() {
                   type="text"
                   required
                   value={title}
-                  onChange={(e) => handleTitleChange(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel"
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    if (!sortTitle) setSortTitle(e.target.value);
+                  }}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
                 />
               </div>
               <div>
@@ -468,7 +494,7 @@ export default function AddBookPage() {
                   type="text"
                   value={sortTitle}
                   onChange={(e) => setSortTitle(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main"
                 />
               </div>
             </div>
@@ -476,12 +502,12 @@ export default function AddBookPage() {
             {/* サブタイトル ＆ 巻数 */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-3">
-                <label className="block text-xs font-bold text-paper-text-sub mb-1">サブタイトル</label>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">その他タイトル（サブタイトル）</label>
                 <input
                   type="text"
                   value={subTitle}
                   onChange={(e) => setSubTitle(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main"
                 />
               </div>
               <div>
@@ -490,7 +516,7 @@ export default function AddBookPage() {
                   type="text"
                   value={volume}
                   onChange={(e) => setVolume(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main font-mono"
                 />
               </div>
             </div>
@@ -503,7 +529,7 @@ export default function AddBookPage() {
                   type="text"
                   value={authors}
                   onChange={(e) => setAuthors(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
                 />
               </div>
               <div>
@@ -512,12 +538,12 @@ export default function AddBookPage() {
                   type="text"
                   value={publisher}
                   onChange={(e) => setPublisher(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
                 />
               </div>
             </div>
 
-            {/* 発行月（YYYY-MM形式を選べる入力） ＆ シリーズ名 */}
+            {/* 発行月 ＆ シリーズ名 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
@@ -527,7 +553,7 @@ export default function AddBookPage() {
                   type="month"
                   value={releaseDate}
                   onChange={(e) => setReleaseDate(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main font-mono"
                 />
               </div>
               <div>
@@ -538,19 +564,19 @@ export default function AddBookPage() {
                   type="text"
                   value={series}
                   onChange={(e) => setSeries(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main"
                 />
               </div>
             </div>
 
-            {/* メモ欄（一番下） */}
+            {/* メモ */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">メモ</label>
               <textarea
                 rows={2}
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
-                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel leading-relaxed"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
               />
             </div>
 
@@ -574,8 +600,7 @@ export default function AddBookPage() {
                 disabled={loading}
                 className="w-full py-4 font-bold text-base transition cursor-pointer disabled:opacity-50 shadow-sm flex items-center justify-center gap-2 bg-paper-caramel text-white hover:opacity-95 rounded-none"
               >
-                {existingBook ? <RefreshCw className="w-5 h-5" /> : null}
-                {loading ? "処理中..." : existingBook ? "この内容で上書きする" : "本を登録"}
+                {loading ? "処理中..." : "本を登録"}
               </button>
             </div>
           </div>
