@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 
+// タグ名にコロンが含まれていても確実に中身を抜き出す改良版関数
 function extractScopedTag(xml: string, tagName: string): string {
   const safeTagName = tagName.replace(':', '\\:');
-  const regex = new RegExp(`<${safeTagName}[^>]*>([^]*?)</${safeTagName}>`, 'i');
+  // 属性や名前空間の揺れに対応できるように正規表現を拡張
+  const regex = new RegExp(`<(?:[a-zA-Z0-9]+:)?${safeTagName.replace(/^.*:/, '')}[^>]*>([^]*?)<\/(?:[a-zA-Z0-9]+:)?${safeTagName.replace(/^.*:/, '')}>`, 'i');
   const match = xml.match(regex);
   if (!match) return '';
   
@@ -21,7 +23,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 💡 修正ポイント：&recordSchema=dcndl を追加して詳細なXML（その他タイトル等を含む）を取得する
     const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}&recordSchema=dcndl`;
     const ndlResponse = await fetch(ndlUrl, {
       headers: { 'Accept': 'application/xml', 'User-Agent': 'BookManagerApp/1.0' },
@@ -56,10 +57,18 @@ export async function GET(request: Request) {
       volume = '1（単）';
     }
 
-    // その他タイトル（サブタイトル）：dcndl:alternative や dcterms:alternative を確実に取得
-    const subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || 
-                     extractScopedTag(itemXml, 'dcterms:alternative') || 
-                     extractScopedTag(itemXml, 'alternative') || '';
+    // その他タイトル（サブタイトル）の確実な取得（alternative全般をキャッチ）
+    let subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || 
+                   extractScopedTag(itemXml, 'dcterms:alternative') || 
+                   extractScopedTag(itemXml, 'alternative') || '';
+                   
+    // もしXMLタグから直接取れない場合のバックアップとして、テキスト全体から alternative タグを探す
+    if (!subTitle) {
+      const altMatch = itemXml.match(/<[^>]*alternative[^>]*>([^<]+)<\/[^>]*alternative>/i);
+      if (altMatch) {
+        subTitle = altMatch[1].trim();
+      }
+    }
 
     // フリガナ（タイトル読み）
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || 
