@@ -42,13 +42,16 @@ export async function GET(request: Request) {
     let rawTitle = extractScopedTag(itemXml, 'title');
     rawTitle = rawTitle.replace(/\s*-\s*国立国会図書館サーチ.*/i, '').trim();
 
+    // 先に title を定義しておく
+    let title = rawTitle;
+
     // 巻数の抽出（取れない場合は「1（単）」）
     let volume = extractScopedTag(itemXml, 'dcndl:volumeTitle') || extractScopedTag(itemXml, 'dcndl:volume') || '';
     if (!volume) {
-      const volumeMatch = rawTitle.match(/(?:第\s*(\d+)\s*巻|[\[〔（\(](\d+)[\]〕）\)]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
+      const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\[〔（\(](\d+)[\]〕）\)]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
       if (volumeMatch) {
         volume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3] || volumeMatch[4];
-        rawTitle = rawTitle.replace(/(?:第\s*\d+\s*巻|[\[〔（\(]\d+[\]〕）\)]|vol\.?\s*\d+|\b\d+\s*巻)/i, '').trim();
+        title = title.replace(/(?:第\s*\d+\s*巻|[\[〔（\(]\d+[\]〕）\)]|vol\.?\s*\d+|\b\d+\s*巻)/i, '').trim();
       }
     }
     if (!volume) {
@@ -56,8 +59,7 @@ export async function GET(request: Request) {
     }
 
     // ==========================================
-    // その他のタイトル（サブタイトル）の抽出と整形
-    // 例: "王都で貴族交流会 オウト デ キゾク コウリュウカイ" -> "王都で貴族交流会" のみ抽出
+    // その他タイトル（サブタイトル）の抽出と整形
     // ==========================================
     let rawAlternative = extractScopedTag(itemXml, 'dcndl:alternative') || 
                          extractScopedTag(itemXml, 'alternative') || 
@@ -65,17 +67,12 @@ export async function GET(request: Request) {
                          subTitleFromXml(itemXml) || '';
 
     let subTitle = rawAlternative;
-    // スペース区切りの後ろ側にあるカタカナ・ローマ字のヨミ部分をカットする
     if (subTitle) {
-      // 例: "王都で貴族交流会 オウト デ キゾク コウリュウカイ" のような場合、最初のカタカナブロックの手前で区切るか、
-      // よくあるパターンとして漢字/かな混じりの部分だけを残す
       const cleanSubMatch = subTitle.match(/^([^\s ]+(?:\s+[^\s ]+)*?)(?:\s+[ア-ンA-Za-z0-9ー ]+)+$/);
       if (cleanSubMatch) {
         subTitle = cleanSubMatch[1].trim();
       } else {
-        // もし上手くマッチしない場合は、最初のスペースまで、あるいは全体の最初の塊を採用
         const parts = subTitle.split(/[\s ]+/);
-        // カタカナだけの部分を除外して日本語部分を結合
         const jpParts = parts.filter(p => !/^[ァ-ヶー]+$/.test(p) && !/^[A-Za-z]+$/.test(p));
         if (jpParts.length > 0) {
           subTitle = jpParts.join(' ');
@@ -95,8 +92,6 @@ export async function GET(request: Request) {
     } else {
       sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
     }
-
-    let title = rawTitle;
 
     // シリーズ名
     let series = extractScopedTag(itemXml, 'dcndl:seriesTitle') || extractScopedTag(itemXml, 'seriesTitle');
