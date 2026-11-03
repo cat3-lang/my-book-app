@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText, Loader2, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.50";
+const APP_VERSION = "v1.0.51";
 
 type ExistingBookInfo = {
   id: string;
@@ -403,7 +403,7 @@ export default function AddBookPage() {
                 </button>
               </div>
 
-              {/* 自動取得ボタン（ISBNのすぐ下） */}
+              {/* 自動取得ボタン */}
               <div className="mt-2">
                 <button
                   type="button"
@@ -516,11 +516,11 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 発売日 ＆ シリーズ名 */}
+            {/* 発行日 ＆ シリーズ名 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
-                  <Calendar className="w-3 h-3 text-paper-caramel" /> 発売日
+                  <Calendar className="w-3 h-3 text-paper-caramel" /> 発行日
                 </label>
                 <input
                   type="date"

@@ -113,6 +113,7 @@ export async function GET(request: Request) {
     let rawTitle = extractScopedTag(itemXml, 'title');
     rawTitle = rawTitle.replace(/\s*-\s*国立国会図書館サーチ.*/i, '').trim();
 
+    // 巻数の抽出
     let volume = extractScopedTag(itemXml, 'dcndl:volumeTitle') || extractScopedTag(itemXml, 'dcndl:volume') || '';
     if (!volume) {
       const volumeMatch = rawTitle.match(/(?:第\s*(\d+)\s*巻|[\[〔（\(](\d+)[\]〕）\)]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
@@ -126,33 +127,41 @@ export async function GET(request: Request) {
     }
 
     // ==========================================
-    // 2. タイトルとサブタイトルの分離処理
+    // 2. タイトルとサブタイトルの強力な分離・抽出処理
     // ==========================================
-    let title = rawTitle;
     let subTitle = extractScopedTag(itemXml, 'dcndl:subTitle') || extractScopedTag(itemXml, 'subTitle') || bdSubtitle || '';
+    let title = rawTitle;
 
+    // 長いタイトルやコロン、全角・半角スペース、括弧、ダッシュ等でサブタイトルが結合している場合の自動分解
     if (!subTitle) {
-      const colonSplit = rawTitle.split(/[:：\s*[-–—]\s*]/);
-      if (colonSplit.length > 1 && colonSplit[1].trim().length > 0) {
-        title = colonSplit[0].trim();
-        subTitle = colonSplit.slice(1).join(' ').trim();
+      // 「 : 」「 ‐ 」「 - 」「 〜 」などで分割を試みる
+      const separators = /[:：\s*[-–—〜〜]\s*]/;
+      const parts = rawTitle.split(separators).filter(Boolean);
+      if (parts.length > 1) {
+        title = parts[0].trim();
+        subTitle = parts.slice(1).join(' ').trim();
       }
     }
 
+    // フリガナ
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || extractScopedTag(itemXml, 'titleTranscription') || title;
     sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
 
+    // シリーズ名
     let series = extractScopedTag(itemXml, 'dcndl:seriesTitle') || extractScopedTag(itemXml, 'seriesTitle');
     if (!series) {
       const seriesMatch = title.match(/^[【\[（\(](.+?)[】\]）\)]/);
       if (seriesMatch) series = seriesMatch[1];
     }
 
+    // 著者名
     let authors = extractScopedTag(itemXml, 'dc:creator') || extractScopedTag(itemXml, 'author');
     authors = authors.replace(/,\s*/g, ' ').replace(/\s*[著]\s*/g, '').trim();
 
+    // 発行者
     const publisher = extractScopedTag(itemXml, 'dc:publisher') || extractScopedTag(itemXml, 'publisher');
 
+    // 発行日（発売日）
     let releaseDate = extractScopedTag(itemXml, 'dc:date') || extractScopedTag(itemXml, 'dcterms:issued') || extractScopedTag(itemXml, 'pubDate') || bdPublishDate;
     releaseDate = releaseDate.replace(/[.\/]/g, '-');
     if (/^\d{4}-\d{2}$/.test(releaseDate)) releaseDate += '-01';
