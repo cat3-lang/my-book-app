@@ -55,11 +55,10 @@ export async function GET(request: Request) {
       volume = '1（単）';
     }
 
-    // サブタイトル（その他のタイトル：専用タグの値だけをそのまま取得）
+    // サブタイトル（その他のタイトル：ご提案の優先順位に最適化）
     const subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || 
-                     extractScopedTag(itemXml, 'alternative') || 
-                     extractScopedTag(itemXml, 'dcndl:subTitle') || 
-                     extractScopedTag(itemXml, 'subTitle') || '';
+                     extractScopedTag(itemXml, 'dcterms:alternative') || 
+                     extractScopedTag(itemXml, 'alternative') || '';
 
     // フリガナ（タイトル読み：そのまま取得）
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || 
