@@ -55,25 +55,48 @@ export async function GET(request: Request) {
       volume = '1（単）';
     }
 
-    // サブタイトル（その他のタイトル）の抽出
-    let subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || 
-                   extractScopedTag(itemXml, 'alternative') || 
-                   extractScopedTag(itemXml, 'dcndl:subTitle') || 
-                   extractScopedTag(itemXml, 'subTitle') || '';
-                   
-    let title = rawTitle;
+    // ==========================================
+    // その他のタイトル（サブタイトル）の抽出と整形
+    // 例: "王都で貴族交流会 オウト デ キゾク コウリュウカイ" -> "王都で貴族交流会" のみ抽出
+    // ==========================================
+    let rawAlternative = extractScopedTag(itemXml, 'dcndl:alternative') || 
+                         extractScopedTag(itemXml, 'alternative') || 
+                         extractScopedTag(itemXml, 'dcndl:subTitle') || 
+                         subTitleFromXml(itemXml) || '';
 
-    if (!subTitle) {
-      const parts = rawTitle.split(/[:：\s*[-–—〜〜]\s*]/).filter(Boolean);
-      if (parts.length > 1) {
-        title = parts[0].trim();
-        subTitle = parts.slice(1).join(' ').trim();
+    let subTitle = rawAlternative;
+    // スペース区切りの後ろ側にあるカタカナ・ローマ字のヨミ部分をカットする
+    if (subTitle) {
+      // 例: "王都で貴族交流会 オウト デ キゾク コウリュウカイ" のような場合、最初のカタカナブロックの手前で区切るか、
+      // よくあるパターンとして漢字/かな混じりの部分だけを残す
+      const cleanSubMatch = subTitle.match(/^([^\s ]+(?:\s+[^\s ]+)*?)(?:\s+[ア-ンA-Za-z0-9ー ]+)+$/);
+      if (cleanSubMatch) {
+        subTitle = cleanSubMatch[1].trim();
+      } else {
+        // もし上手くマッチしない場合は、最初のスペースまで、あるいは全体の最初の塊を採用
+        const parts = subTitle.split(/[\s ]+/);
+        // カタカナだけの部分を除外して日本語部分を結合
+        const jpParts = parts.filter(p => !/^[ァ-ヶー]+$/.test(p) && !/^[A-Za-z]+$/.test(p));
+        if (jpParts.length > 0) {
+          subTitle = jpParts.join(' ');
+        }
       }
     }
 
-    // フリガナ
-    let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || extractScopedTag(itemXml, 'titleTranscription') || title;
-    sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
+    // ==========================================
+    // フリガナ（タイトル読み）の取得強化
+    // ==========================================
+    let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || 
+                    extractScopedTag(itemXml, 'titleTranscription') || 
+                    extractScopedTag(itemXml, 'dcndl:alternativeTranscription') || '';
+                    
+    if (!sortTitle) {
+      sortTitle = title;
+    } else {
+      sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
+    }
+
+    let title = rawTitle;
 
     // シリーズ名
     let series = extractScopedTag(itemXml, 'dcndl:seriesTitle') || extractScopedTag(itemXml, 'seriesTitle');
@@ -89,11 +112,21 @@ export async function GET(request: Request) {
     // 発行者
     const publisher = extractScopedTag(itemXml, 'dc:publisher') || extractScopedTag(itemXml, 'publisher');
 
-    // 発行日（「2026年11月」や「2017-07」などの柔軟なテキスト対応）
-    let releaseDate = extractScopedTag(itemXml, 'dcterms:issued') || 
-                      extractScopedTag(itemXml, 'dc:date') || 
-                      extractScopedTag(itemXml, 'pubDate') || '';
-    releaseDate = releaseDate.replace(/[.\/]/g, '-').trim();
+    // 発行月（YYYY-MM形式）
+    let rawDate = extractScopedTag(itemXml, 'dcterms:issued') || 
+                  extractScopedTag(itemXml, 'dc:date') || 
+                  extractScopedTag(itemXml, 'pubDate') || '';
+                  
+    rawDate = rawDate.replace(/[.\/]/g, '-').trim();
+    let releaseDate = '';
+    const dateMatch = rawDate.match(/(\d{4})-(\d{1,2})/);
+    if (dateMatch) {
+      const year = dateMatch[1];
+      const month = dateMatch[2].padStart(2, '0');
+      releaseDate = `${year}-${month}`;
+    } else {
+      releaseDate = rawDate;
+    }
 
     return NextResponse.json({
       success: true,
@@ -111,4 +144,10 @@ export async function GET(request: Request) {
     console.error('Book fetch error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
+}
+
+// 補助関数
+function subTitleFromXml(xml: string): string {
+  const match = xml.match(/<dcndl:alternative[^>]*>([^]*?)<\/dcndl:alternative>/i);
+  return match ? match[1].replace(/<\/?[^>]+(>|$)/g, "").trim() : "";
 }

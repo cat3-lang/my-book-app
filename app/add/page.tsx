@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, Loader2, AlertCircle, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.55";
+const APP_VERSION = "v1.0.56";
 
 type ExistingBookInfo = {
   id: string;
@@ -387,7 +387,7 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 3. ISBN ＆ 読み取り ＆ 自動取得ボタン（一番上へ配置） */}
+            {/* 3. ISBN ＆ 読み取り ＆ 自動取得ボタン */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
               <div className="flex gap-2 items-center">
@@ -517,15 +517,14 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 発行日 ＆ シリーズ名 */}
+            {/* 発行月（YYYY-MM形式を選べる入力） ＆ シリーズ名 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
-                  <Calendar className="w-3 h-3 text-paper-caramel" /> 発行日
+                  <Calendar className="w-3 h-3 text-paper-caramel" /> 発行月
                 </label>
                 <input
-                  type="text"
-                  placeholder="2026年11月 または 2017-07 等"
+                  type="month"
                   value={releaseDate}
                   onChange={(e) => setReleaseDate(e.target.value)}
                   className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main focus:outline-none focus:border-paper-caramel font-mono"
