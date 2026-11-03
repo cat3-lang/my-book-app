@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, Loader2, AlertCircle, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
+import FooterNav from "@/components/FooterNav";
 
 const APP_VERSION = "v1.0.58";
 
@@ -545,6 +546,17 @@ export default function AddBookPage() {
           </div>
         </form>
       </main>
+
+      import FooterNav from "@/components/FooterNav";
+
+// コンポーネント内の最後のJSX
+return (
+  <div className="...">
+    {/* 画面コンテンツ */}
+    
+    <FooterNav/>
+  </div>
+);
     </div>
   );
 }

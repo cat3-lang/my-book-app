@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Layers, Edit3, Heart, Plus, Settings } from "lucide-react";
+import FooterNav from "@/components/FooterNav";
 
 const APP_VERSION = "v1.0.39";
 
@@ -206,7 +207,6 @@ export default function HomePage() {
               <Search className="w-3.5 h-3.5" />
               <span>検索</span>
             </button>
-            {/* カウンター（右寄せ） */}
             <div className="text-xs font-mono text-paper-text-main font-bold px-3 py-1.5 bg-paper-sub border border-paper-border shrink-0 shadow-xs">
               計 {filteredBooks.length}/{books.length}冊
             </div>
@@ -320,7 +320,6 @@ export default function HomePage() {
                                   >
                                     <div className="flex items-center justify-between">
                                       <div className="flex items-center gap-3 flex-wrap">
-                                        {/* 大きく押しやすくした巻数ボタン */}
                                         <button
                                           type="button"
                                           onClick={(e) => toggleBookDetail(book.id, e)}
@@ -341,7 +340,6 @@ export default function HomePage() {
                                     {(isBookExpanded || isEditing) && (
                                       <div className="mt-2 pt-3 border-t border-paper-border space-y-3 text-xs md:text-sm text-paper-text-body bg-paper-inner p-3.5 rounded-none">
                                         {isEditing ? (
-                                          /* 編集モード */
                                           <div className="space-y-3">
                                             <div className="grid grid-cols-2 gap-2.5">
                                               <div>
@@ -465,7 +463,6 @@ export default function HomePage() {
                                             </div>
                                           </div>
                                         ) : (
-                                          /* 通常表示モード */
                                           <div className="space-y-2.5 text-paper-text-body">
                                             <div className="grid grid-cols-2 gap-2 pb-2 border-b border-paper-border items-center">
                                               <div>
@@ -528,39 +525,8 @@ export default function HomePage() {
         )}
       </main>
 
-      {/* 固定ボトムナビゲーション */}
-      <nav aria-label="メインナビゲーション" className="fixed bottom-0 left-0 right-0 z-30 bg-paper-card/95 backdrop-blur-md border-t border-paper-border px-2 py-2">
-        <div className="max-w-md mx-auto grid grid-cols-4 gap-1 text-center">
-          <Link
-            href="/"
-            className="flex flex-col items-center justify-center py-1 text-paper-caramel font-bold transition"
-          >
-            <BookOpen className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px]">本棚</span>
-          </Link>
-          <Link
-            href="/wants"
-            className="flex flex-col items-center justify-center py-1 text-paper-text-sub hover:text-paper-text-main transition"
-          >
-            <Heart className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] font-medium">欲しい本</span>
-          </Link>
-          <Link
-            href="/add"
-            className="flex flex-col items-center justify-center py-1 text-paper-text-sub hover:text-paper-text-main transition"
-          >
-            <Plus className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] font-medium">登録</span>
-          </Link>
-          <Link
-            href="/settings"
-            className="flex flex-col items-center justify-center py-1 text-paper-text-sub hover:text-paper-text-main transition"
-          >
-            <Settings className="w-5 h-5 mb-0.5" />
-            <span className="text-[10px] font-medium">設定・CSV</span>
-          </Link>
-        </div>
-      </nav>
+      {/* 共通フッターナビゲーション */}
+      <FooterNav />
     </div>
   );
 }

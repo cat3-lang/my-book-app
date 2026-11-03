@@ -1,253 +1,196 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Download, Upload, ArrowLeft, BookOpen, CheckCircle, AlertCircle, FileSpreadsheet } from "lucide-react";
+import { ArrowLeft, Download, Upload, RefreshCw, FileText, Check, AlertCircle, Loader2, Database, Info } from "lucide-react";
+import FooterNav from "@/components/FooterNav";
+
+const APP_VERSION = "v1.0.59";
+
+// CSVヘッダー（最新のテーブル構造）
+const CSV_HEADER = "isbn,title,sub_title,sort_title,volume,series,authors,publisher,release_date,status,created_at,memo";
 
 export default function SettingsPage() {
-  const [exporting, setExporting] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
-  // 📄 まとめて登録できる見本CSVのダウンロード
-  const handleDownloadTemplate = () => {
-    const headers = [
-      "title",
-      "sort_title",
-      "volume",
-      "series",
-      "authors",
-      "publisher",
-      "isbn",
-      "status",
-      "summary",
-      "memo",
-      "release_date",
-    ];
-
+  // ==========================================
+  // 1. 見本CSVファイルのダウンロード
+  // ==========================================
+  const handleDownloadSampleCsv = () => {
     const sampleRows = [
-      [
-        "サンプル漫画A",
-        "さんぷるまんがえー",
-        "1",
-        "サンプルシリーズ",
-        "著者 太郎",
-        "サンプル出版社",
-        "9784000000001",
-        "持っている",
-        "これは1巻のあらすじです。",
-        "面白かった",
-        "2025-01-01",
-      ],
-      [
-        "サンプル漫画A",
-        "さんぷるまんがえー",
-        "2",
-        "サンプルシリーズ",
-        "著者 太郎",
-        "サンプル出版社",
-        "9784000000002",
-        "持っている",
-        "これは2巻のあらすじです。",
-        "続きも期待",
-        "2025-02-01",
-      ],
-      [
-        "サンプル小説B",
-        "さんぷるしょうせつびー",
-        "1",
-        "",
-        "作家 次郎",
-        "文庫出版",
-        "9784000000003",
-        "欲しい",
-        "今度出る新刊の小説です。",
-        "本屋でチェックする",
-        "2026-03-10",
-      ],
-    ];
+      CSV_HEADER,
+      '9784800272829,転生して田舎でスローライフをおくりたい,王都で貴族交流会,テンセイシテイナカデスローライフオクリタイ,3,宝島社,錬金王,宝島社,2017-07,持っている,2026-11-03,サンプルデータ'
+    ].join("\n");
 
-    const csvContent =
-      "\uFEFF" +
-      [headers.join(","), ...sampleRows.map((row) => row.map((val) => `"${val}"`).join(","))].join("\r\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["\uFEFF" + sampleRows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", "book_import_template.csv");
+    link.setAttribute("download", "book_manager_sample.csv");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // 📤 CSV書き出し（エクスポート / バックアップ）
-  const handleExportCSV = async () => {
-    setExporting(true);
-    setMessage(null);
+  // ==========================================
+  // 2. 一括エクスポート（バックアップデータ）
+  // ==========================================
+  const handleExportBackup = async () => {
+    setLoading(true);
+    setErrorMessage("");
+    setSuccessMessage("");
 
     try {
-      const { data, error } = await supabase.from("books").select("*");
+      const { data: books, error } = await supabase
+        .from("books")
+        .select("*")
+        .order("created_at", { ascending: false });
+
       if (error) throw error;
 
-      if (!data || data.length === 0) {
-        setMessage({ type: "error", text: "エクスポートするデータがありません。" });
-        setExporting(false);
+      if (!books || books.length === 0) {
+        setErrorMessage("エクスポートする書籍データがありません。");
+        setLoading(false);
         return;
       }
 
-      const headers = [
-        "id",
-        "title",
-        "sort_title",
-        "volume",
-        "series",
-        "authors",
-        "publisher",
-        "isbn",
-        "status",
-        "summary",
-        "memo",
-        "release_date",
-        "created_at",
-      ];
+      const rows = books.map((b) => {
+        const escape = (str: any) => {
+          if (str === null || str === undefined) return "";
+          const s = String(str).replace(/"/g, '""');
+          return `"${s}"`;
+        };
+        return [
+          escape(b.isbn),
+          escape(b.title),
+          escape(b.sub_title),
+          escape(b.sort_title),
+          escape(b.volume),
+          escape(b.series),
+          escape(b.authors),
+          escape(b.publisher),
+          escape(b.release_date),
+          escape(b.status),
+          escape(b.created_at ? new Date(b.created_at).toISOString().split("T")[0] : ""),
+          escape(b.memo)
+        ].join(",");
+      });
 
-      const csvRows = data.map((row) =>
-        headers
-          .map((header) => {
-            const val = row[header] ?? "";
-            const escaped = String(val).replace(/"/g, '""');
-            return `"${escaped}"`;
-          })
-          .join(",")
-      );
-
-      const csvContent = "\uFEFF" + [headers.join(","), ...csvRows].join("\r\n");
-
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const csvContent = [CSV_HEADER, ...rows].join("\n");
+      const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
+      const today = new Date().toISOString().split("T")[0];
       link.href = url;
-      link.setAttribute("download", `books_backup_${new Date().toISOString().split("T")[0]}.csv`);
+      link.setAttribute("download", `book_backup_${today}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
 
-      setMessage({ type: "success", text: `${data.length}件のデータをCSVファイルとして書き出しました！` });
+      setSuccessMessage(`全 ${books.length} 件のデータをエクスポートしました。`);
     } catch (err: any) {
-      setMessage({ type: "error", text: "エクスポートに失敗しました: " + err.message });
+      setErrorMessage(`エクスポートエラー: ${err.message}`);
     } finally {
-      setExporting(false);
+      setLoading(false);
     }
   };
 
-  // 📥 CSV読み込み（インポート：重複は自動スキップ＆結果集計）
-  const handleImportCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  // ==========================================
+  // 3. インポート処理（追加 / 復元共通ロジック）
+  // ==========================================
+  const handleImportCsv = async (event: React.ChangeEvent<HTMLInputElement>, mode: "append" | "restore") => {
+    const file = event.target.files?.[0];
     if (!file) return;
 
-    setImporting(true);
-    setMessage(null);
+    if (mode === "restore") {
+      const confirmRestore = window.confirm("⚠️ 【注意】現在の全データを削除し、バックアップファイルで置き換えます。よろしいですか？");
+      if (!confirmRestore) {
+        event.target.value = "";
+        return;
+      }
+    }
+
+    setLoading(true);
+    setErrorMessage("");
+    setSuccessMessage("");
 
     const reader = new FileReader();
-    reader.onload = async (event) => {
+    reader.onload = async (e) => {
       try {
-        const text = event.target?.result as string;
+        const text = e.target?.result as string;
         const lines = text.split(/\r\n|\n/).filter((line) => line.trim() !== "");
-
-        if (lines.length < 2) {
-          throw new Error("有効なCSVデータが見つかりません。");
+        if (lines.length <= 1) {
+          throw new Error("CSVファイルにデータが含まれていません。");
         }
 
-        const parseCSVLine = (line: string) => {
+        // CSV行のパース（簡易ダブルクォーテーション対応）
+        const parseCsvLine = (line: string) => {
           const result = [];
           let current = "";
           let inQuotes = false;
           for (let i = 0; i < line.length; i++) {
             const char = line[i];
-            if (char === '"') {
-              if (inQuotes && line[i + 1] === '"') {
-                current += '"';
-                i++;
-              } else {
-                inQuotes = !inQuotes;
-              }
+            if (char === '"' && (i === 0 || line[i - 1] !== "\\")) {
+              inQuotes = !inQuotes;
             } else if (char === "," && !inQuotes) {
-              result.push(current);
+              result.push(current.replace(/^"|"$/g, "").replace(/""/g, '"').trim());
               current = "";
             } else {
               current += char;
             }
           }
-          result.push(current);
+          result.push(current.replace(/^"|"$/g, "").replace(/""/g, '"').trim());
           return result;
         };
 
-        const headers = parseCSVLine(lines[0]).map((h) => h.trim().replace(/^"|"$/g, ""));
-
-        // 1. 既存のデータを取得して重複チェックの準備をする
-        const { data: existingBooks, error: fetchError } = await supabase.from("books").select("title, volume, isbn");
-        if (fetchError) throw fetchError;
-
-        const existingSet = new Set(
-          (existingBooks || []).map((b) => {
-            // ISBNがあればISBN優先、なければ「タイトル+巻数」で判定
-            if (b.isbn) return `isbn:${b.isbn.trim()}`;
-            return `tv:${b.title.trim()}_${(b.volume || "").trim()}`;
-          })
-        );
-
-        const booksToInsert = [];
-        let skippedCount = 0;
-
+        const records = [];
         for (let i = 1; i < lines.length; i++) {
-          const values = parseCSVLine(lines[i]).map((v) => v.trim().replace(/^"|"$/g, ""));
-          if (values.length < headers.length) continue;
+          const cols = parseCsvLine(lines[i]);
+          if (!cols[1]) continue; // タイトルが無い行はスキップ
 
-          const rowData: any = {};
-          headers.forEach((header, index) => {
-            const val = values[index];
-            if (header !== "id" && header !== "created_at") {
-              rowData[header] = val === "" ? null : val;
-            }
+          records.push({
+            isbn: cols[0] || null,
+            title: cols[1],
+            sub_title: cols[2] || null,
+            sort_title: cols[3] || cols[1],
+            volume: cols[4] || null,
+            series: cols[5] || null,
+            authors: cols[6] || null,
+            publisher: cols[7] || null,
+            release_date: cols[8] || null,
+            status: cols[9] === "欲しい" ? "欲しい" : "持っている",
+            created_at: cols[10] ? new Date(cols[10]).toISOString() : new Date().toISOString(),
+            memo: cols[11] || null,
           });
-
-          if (rowData.title) {
-            if (!rowData.status) rowData.status = "持っている";
-            if (!rowData.sort_title) rowData.sort_title = rowData.title;
-
-            // 重複チェック
-            const isbnKey = rowData.isbn ? `isbn:${rowData.isbn.trim()}` : null;
-            const tvKey = `tv:${rowData.title.trim()}_${(rowData.volume || "").trim()}`;
-
-            const isDuplicate = (isbnKey && existingSet.has(isbnKey)) || existingSet.has(tvKey);
-
-            if (isDuplicate) {
-              skippedCount++;
-            } else {
-              booksToInsert.push(rowData);
-              // 重複判定用セットにも追加（CSV内での重複も防ぐ）
-              if (isbnKey) existingSet.add(isbnKey);
-              existingSet.add(tvKey);
-            }
-          }
         }
 
-        if (booksToInsert.length > 0) {
-          const { error: insertError } = await supabase.from("books").insert(booksToInsert);
-          if (insertError) throw insertError;
+        if (records.length === 0) {
+          throw new Error("有効なデータが見つかりませんでした。");
         }
 
-        setMessage({
-          type: "success",
-          text: `インポートが完了しました！（新規追加: ${booksToInsert.length}冊 / 重複スキップ: ${skippedCount}冊）`,
-        });
+        // 復元モードの場合は既存データを削除
+        if (mode === "restore") {
+          const { error: deleteErr } = await supabase.from("books").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+          if (deleteErr) throw deleteErr;
+        }
+
+        // データベースへまとめて追加
+        const { error: insertErr } = await supabase.from("books").insert(records);
+        if (insertErr) throw insertErr;
+
+        setSuccessMessage(
+          mode === "restore"
+            ? `全データをクリアし、${records.length} 件のデータを復元しました！`
+            : `${records.length} 件のデータを新規インポートしました！`
+        );
       } catch (err: any) {
-        setMessage({ type: "error", text: "インポートに失敗しました: " + err.message });
+        setErrorMessage(`インポート失敗: ${err.message}`);
       } finally {
-        setImporting(false);
-        e.target.value = "";
+        setLoading(false);
+        event.target.value = "";
       }
     };
 
@@ -255,106 +198,137 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 font-sans pb-28">
+    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-32">
       {/* ヘッダー */}
-      <header className="sticky top-0 z-10 bg-neutral-950/90 backdrop-blur-md border-b border-neutral-800 px-4 py-3 md:px-8">
+      <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-4 py-3 md:px-8">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="p-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded text-neutral-300 transition"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
-            <h1 className="text-sm font-bold tracking-wider text-neutral-100 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-emerald-400" /> 設定・CSV入出力
-            </h1>
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 text-xs font-bold text-paper-text-main bg-paper-sub px-3 py-1.5 border border-paper-border hover:bg-paper-border transition"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>本棚に戻る</span>
+          </Link>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold tracking-wider text-paper-text-main">設定・データ管理</h1>
+            <span className="text-[10px] bg-paper-sub text-paper-text-sub px-1.5 py-0.5 font-mono border border-paper-border">
+              {APP_VERSION}
+            </span>
           </div>
+          <div className="w-16" />
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-        {message && (
-          <div
-            className={`p-4 rounded border flex items-center gap-3 text-xs ${
-              message.type === "success"
-                ? "bg-emerald-950/50 border-emerald-800 text-emerald-300"
-                : "bg-red-950/50 border-red-800 text-red-300"
-            }`}
-          >
-            {message.type === "success" ? (
-              <CheckCircle className="w-4 h-4 shrink-0" />
-            ) : (
-              <AlertCircle className="w-4 h-4 shrink-0" />
-            )}
-            <span>{message.text}</span>
+      <main className="max-w-3xl mx-auto px-4 py-8 md:px-8 space-y-6">
+        {/* メッセージ表示 */}
+        {successMessage && (
+          <div className="p-3 bg-[#E6F4EA] border border-[#A8DADC] text-[#1D3557] text-xs flex items-center gap-2">
+            <Check className="w-4 h-4 text-[#2A9D8F] shrink-0" />
+            <span>{successMessage}</span>
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* 📄 見本CSVダウンロードカード */}
-          <div className="bg-neutral-900 border border-neutral-800 p-5 rounded space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-neutral-100 flex items-center gap-2 mb-1">
-                <FileSpreadsheet className="w-4 h-4 text-sky-400" /> 見本ファイルのダウンロード
-              </h2>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                複数冊をまとめて一括登録するためのサンプルデータが入ったCSV見本をダウンロードできます。
-              </p>
-            </div>
-            <button
-              onClick={handleDownloadTemplate}
-              className="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-bold rounded transition cursor-pointer flex items-center justify-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              <span>見本CSVをダウンロード</span>
-            </button>
+        {errorMessage && (
+          <div className="p-3 bg-[#F8D7DA] border border-[#F5C6CB] text-[#721C24] text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMessage}</span>
           </div>
+        )}
 
-          {/* 📤 エクスポートカード */}
-          <div className="bg-neutral-900 border border-neutral-800 p-5 rounded space-y-4">
+        {/* 1. バックアップ＆ダウンロード */}
+        <section className="bg-paper-card border border-paper-border p-5 space-y-4 shadow-sm">
+          <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider flex items-center gap-1.5 border-b border-paper-border pb-2">
+            <Database className="w-3.5 h-3.5 text-paper-caramel" /> データのエクスポート
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <h2 className="text-sm font-bold text-neutral-100 flex items-center gap-2 mb-1">
-                <Download className="w-4 h-4 text-emerald-400" /> データのバックアップ
-              </h2>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                登録されているすべての書籍データを現在の状態のままCSVファイルとして書き出します。
-              </p>
+              <p className="text-xs text-paper-text-sub mb-2">現在の蔵書データをCSVファイルとして一括保存します。</p>
+              <button
+                type="button"
+                onClick={handleExportBackup}
+                disabled={loading}
+                className="w-full py-2.5 bg-paper-caramel text-white text-xs font-bold hover:opacity-95 transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                <span>全データ一括バックアップ</span>
+              </button>
             </div>
-            <button
-              onClick={handleExportCSV}
-              disabled={exporting}
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-neutral-100 text-xs font-bold rounded transition cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              <span>{exporting ? "書き出し中..." : "バックアップを保存"}</span>
-            </button>
+            <div>
+              <p className="text-xs text-paper-text-sub mb-2">インポート作成用のフォーマット例（CSV）を取得します。</p>
+              <button
+                type="button"
+                onClick={handleDownloadSampleCsv}
+                className="w-full py-2.5 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold border border-paper-border transition flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5 text-paper-caramel" />
+                <span>見本ファイルのダウンロード</span>
+              </button>
+            </div>
           </div>
+        </section>
 
-          {/* 📥 インポートカード */}
-          <div className="bg-neutral-900 border border-neutral-800 p-5 rounded space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-neutral-100 flex items-center gap-2 mb-1">
-                <Upload className="w-4 h-4 text-amber-400" /> 一括インポート
-              </h2>
-              <p className="text-xs text-neutral-400 leading-relaxed">
-                CSVファイルを選択して一括登録します。既存の本は自動でスキップされ重複を防ぎます。
+        {/* 2. インポート（2種類） */}
+        <section className="bg-paper-card border border-paper-border p-5 space-y-4 shadow-sm">
+          <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider flex items-center gap-1.5 border-b border-paper-border pb-2">
+            <Upload className="w-3.5 h-3.5 text-paper-caramel" /> データのインポート
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* ① 追加用インポート */}
+            <div className="border border-paper-border p-3.5 bg-paper-inner space-y-2">
+              <h3 className="text-xs font-bold text-paper-text-main">① 追加用インポート</h3>
+              <p className="text-[11px] text-paper-text-sub leading-relaxed">
+                既存のデータを残したまま、新しい本をCSVファイルからまとめて登録します。
               </p>
+              <label className="block mt-2">
+                <span className="w-full py-2 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold border border-paper-border transition flex items-center justify-center gap-1.5 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-paper-caramel" /> 追加CSVを選択
+                </span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  disabled={loading}
+                  onChange={(e) => handleImportCsv(e, "append")}
+                  className="hidden"
+                />
+              </label>
             </div>
-            <label className="w-full py-2.5 bg-neutral-100 hover:bg-neutral-300 text-neutral-950 text-xs font-bold rounded transition cursor-pointer flex items-center justify-center gap-2">
-              <Upload className="w-4 h-4" />
-              <span>{importing ? "読み込み中..." : "CSVファイルを選択"}</span>
-              <input
-                type="file"
-                accept=".csv"
-                onChange={handleImportCSV}
-                disabled={importing}
-                className="hidden"
-              />
-            </label>
+
+            {/* ② バックアップ復元インポート */}
+            <div className="border border-paper-border p-3.5 bg-paper-inner space-y-2">
+              <h3 className="text-xs font-bold text-paper-text-main text-red-700">② バックアップ復元インポート</h3>
+              <p className="text-[11px] text-paper-text-sub leading-relaxed">
+                全データを一度クリアして、過去のバックアップCSVファイルの状態に丸ごと復元します。
+              </p>
+              <label className="block mt-2">
+                <span className="w-full py-2 bg-red-800 text-white hover:bg-red-900 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer">
+                  <RefreshCw className="w-3.5 h-3.5" /> 復元CSVを選択
+                </span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  disabled={loading}
+                  onChange={(e) => handleImportCsv(e, "restore")}
+                  className="hidden"
+                />
+              </label>
+            </div>
           </div>
-        </div>
+        </section>
+
+        {/* 3. 保留項目・ステータス */}
+        <section className="bg-paper-card border border-paper-border p-5 space-y-2 shadow-sm">
+          <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider flex items-center gap-1.5 border-b border-paper-border pb-2">
+            <Info className="w-3.5 h-3.5 text-paper-caramel" /> 今後の改善メモ（未実装リスト）
+          </h2>
+          <ul className="text-xs text-paper-text-sub space-y-1 list-disc list-inside pt-1">
+            <li>国立国会図書館APIからの「その他タイトル（サブタイトル）」のより精度の高い抽出・自動補完ロジックの再調整</li>
+          </ul>
+        </section>
       </main>
+
+      {/* 共通フッターナビゲーション */}
+      <FooterNav />
     </div>
   );
 }
