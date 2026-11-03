@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.62";
+const APP_VERSION = "v1.0.63";
 
 type Book = {
   id: string;
@@ -22,7 +22,7 @@ type Book = {
   memo: string | null;
   release_date: string | null;
   created_at: string;
-  rating?: number | null; // お気に入り 1〜5
+  rating?: number | null;
 };
 
 type GroupedBook = {
@@ -32,7 +32,6 @@ type GroupedBook = {
   books: Book[];
 };
 
-// カタカナ・ひらがな両対応の五十音判定
 function getSeionGroup(sortTitle: string): string {
   if (!sortTitle) return "その他";
   const char = sortTitle.charAt(0);
@@ -50,14 +49,13 @@ function getSeionGroup(sortTitle: string): string {
   return "その他";
 }
 
-const SEION_TABS = ["すべて", "★お気に入り", "あ行", "か行", "さ行", "た行", "な行", "は行", "ま行", "や行", "ら行", "わ行", "英数字", "その他"];
+const SEION_TABS = ["すべて", "★", "あ行", "か行", "さ行", "た行", "な行", "は行", "ま行", "や行", "ら行", "わ行", "英数字", "その他"];
 
 export default function HomePage() {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState("すべて");
-  const [minRatingFilter, setMinRatingFilter] = useState<number>(0);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [expandedTitle, setExpandedTitle] = useState<string | null>(null);
   const [expandedBookIds, setExpandedBookIds] = useState<{ [key: string]: boolean }>({});
@@ -139,7 +137,6 @@ export default function HomePage() {
     }
   };
 
-  // 星評価の更新
   const handleRatingChange = async (book: Book, newRating: number, e: React.MouseEvent) => {
     e.stopPropagation();
     const updatedRating = book.rating === newRating ? 0 : newRating;
@@ -157,9 +154,8 @@ export default function HomePage() {
     const q = searchQuery.toLowerCase().trim();
     const seion = getSeionGroup(b.sort_title || b.title);
 
-    if (selectedTab === "★お気に入り") {
+    if (selectedTab === "★") {
       if (!b.rating || b.rating === 0) return false;
-      if (minRatingFilter > 0 && (b.rating || 0) < minRatingFilter) return false;
     } else if (selectedTab !== "すべて" && seion !== selectedTab) {
       return false;
     }
@@ -213,7 +209,6 @@ export default function HomePage() {
         {APP_VERSION}
       </div>
 
-      {/* ヘッダー */}
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-3 py-2.5 md:px-6">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <h1 className="text-sm font-bold text-paper-text-main flex items-center gap-1.5">
@@ -256,7 +251,7 @@ export default function HomePage() {
       </div>
 
       <main className="max-w-4xl mx-auto px-2 md:px-6 py-4 space-y-3">
-        {/* 五十音 ＆ お気に入り タブ */}
+        {/* 五十音 ＆ ★ タブ */}
         <div className="bg-paper-card border border-paper-border p-2 shadow-sm">
           <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
             {SEION_TABS.map((tab) => (
@@ -274,35 +269,8 @@ export default function HomePage() {
               </button>
             ))}
           </div>
-
-          {/* ★お気に入り指定時の星フィルター */}
-          {selectedTab === "★お気に入り" && (
-            <div className="mt-2 pt-2 border-t border-paper-border flex items-center gap-2 text-xs">
-              <span className="font-bold text-paper-text-sub">絞り込み:</span>
-              <button
-                type="button"
-                onClick={() => setMinRatingFilter(0)}
-                className={`px-2 py-0.5 border ${minRatingFilter === 0 ? "bg-paper-caramel text-white" : "bg-paper-sub"}`}
-              >
-                すべて
-              </button>
-              {[5, 4, 3, 2, 1].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setMinRatingFilter(star)}
-                  className={`px-2 py-0.5 border flex items-center gap-0.5 ${
-                    minRatingFilter === star ? "bg-paper-caramel text-white font-bold" : "bg-paper-sub text-paper-text-main"
-                  }`}
-                >
-                  <span>★{star}以上</span>
-                </button>
-              ))}
-            </div>
-          )}
         </div>
 
-        {/* 検索パネル */}
         {isSearchOpen && (
           <div className="bg-paper-card border border-paper-border p-2.5">
             <div className="relative">
@@ -318,7 +286,6 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* 本一覧 */}
         {loading ? (
           <p className="text-center text-paper-text-sub py-8 text-xs">読み込み中...</p>
         ) : groupedBooksList.length === 0 ? (
@@ -342,14 +309,13 @@ export default function HomePage() {
 
                 return (
                   <React.Fragment key={group.title}>
-                    {/* 五十音見出しヘッダー */}
-                    {showSeionHeader && selectedTab !== "★お気に入り" && (
+                    {showSeionHeader && selectedTab !== "★" && (
                       <div className="bg-[#D9CFAF] border-t border-paper-border-dark px-3 py-1.5 text-xs font-extrabold text-paper-text-main">
                         【 {currentSeion} 】
                       </div>
                     )}
 
-                    {/* 親タイトル行（右端に冊数タグを配置して横幅スリム化） */}
+                    {/* 親タイトル行：折り返し対応で長いタイトルも見切れないように */}
                     <div
                       className="p-3 hover:bg-paper-sub/60 transition cursor-pointer flex items-center justify-between gap-2 border-t border-paper-border"
                       onClick={() => setExpandedTitle(isExpanded ? null : group.title)}
@@ -358,7 +324,7 @@ export default function HomePage() {
                         <span className="text-paper-caramel shrink-0">
                           {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </span>
-                        <div className="font-bold text-paper-text-main text-sm truncate">
+                        <div className="font-bold text-paper-text-main text-sm break-words whitespace-normal">
                           {group.title}
                         </div>
                       </div>
@@ -368,7 +334,6 @@ export default function HomePage() {
                       </span>
                     </div>
 
-                    {/* 巻・詳細展開領域 */}
                     {isExpanded && (
                       <div className="bg-paper-inner/90 p-2 md:p-3 space-y-2 border-b border-paper-border-dark">
                         {group.books.map((book) => {
@@ -380,10 +345,8 @@ export default function HomePage() {
                               key={book.id}
                               className="bg-paper-card border border-paper-border p-2.5 space-y-2 text-xs"
                             >
-                              {/* 巻数・サブタイトル・登録日 */}
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                                  {/* 1(単)巻などに幅を固定合わせた大きな巻数ボタン */}
                                   <button
                                     type="button"
                                     onClick={(e) => toggleBookDetail(book.id, e)}
@@ -393,29 +356,27 @@ export default function HomePage() {
                                     <span>{book.volume ? `${book.volume}巻` : "詳細"}</span>
                                   </button>
 
-                                  {/* サブタイトルがあれば表示 */}
                                   {book.sub_title && (
-                                    <span className="text-paper-text-sub truncate text-xs">
+                                    <span className="text-paper-text-sub break-words whitespace-normal text-xs">
                                       {book.sub_title}
                                     </span>
                                   )}
                                 </div>
 
-                                {/* 右端：星マーク＆登録日 */}
                                 <div className="flex items-center gap-2 shrink-0">
-                                  {/* ★ 5段階お気に入りボタン */}
-                                  <div className="flex items-center text-amber-500">
+                                  {/* 星評価（0の時もはっきり見える色に調整） */}
+                                  <div className="flex items-center">
                                     {[1, 2, 3, 4, 5].map((star) => (
                                       <button
                                         key={star}
                                         type="button"
                                         onClick={(e) => handleRatingChange(book, star, e)}
                                         className="p-0.5 hover:scale-110 transition cursor-pointer"
-                                        title={`${star}つ星に設定`}
+                                        title={`${star}つ星`}
                                       >
                                         <Star
                                           className={`w-3.5 h-3.5 ${
-                                            (book.rating || 0) >= star ? "fill-amber-400 text-amber-500" : "text-gray-300"
+                                            (book.rating || 0) >= star ? "fill-amber-400 text-amber-500" : "text-gray-400/70"
                                           }`}
                                         />
                                       </button>
@@ -428,11 +389,9 @@ export default function HomePage() {
                                 </div>
                               </div>
 
-                              {/* 詳細・編集領域 */}
                               {(isBookExpanded || isEditing) && (
                                 <div className="mt-2 pt-2 border-t border-paper-border space-y-2 bg-paper-inner p-2.5">
                                   {isEditing ? (
-                                    /* インライン編集モード */
                                     <div className="space-y-2.5">
                                       <div className="grid grid-cols-2 gap-2">
                                         <div>
@@ -457,7 +416,7 @@ export default function HomePage() {
 
                                       <div className="grid grid-cols-2 gap-2">
                                         <div>
-                                          <label className="text-[10px] text-paper-text-sub block font-bold">その他タイトル（サブ）</label>
+                                          <label className="text-[10px] text-paper-text-sub block font-bold">サブタイトル</label>
                                           <input
                                             type="text"
                                             value={editForm.sub_title || ""}
@@ -487,7 +446,7 @@ export default function HomePage() {
                                           />
                                         </div>
                                         <div>
-                                          <label className="text-[10px] text-paper-text-sub block font-bold">発行者</label>
+                                          <label className="text-[10px] text-paper-text-sub block font-bold">発行所</label>
                                           <input
                                             type="text"
                                             value={editForm.publisher || ""}
@@ -566,13 +525,13 @@ export default function HomePage() {
                                       </div>
                                     </div>
                                   ) : (
-                                    /* 通常詳細表示モード（あらすじ省略、メモのみ） */
-                                    <div className="space-y-2">
-                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                    /* ご要望のレイアウト順：著者/発行所 -> 発行月/ISBN -> シリーズ -> メモ */
+                                    <div className="space-y-2 text-xs">
+                                      <div className="grid grid-cols-2 gap-2 items-center">
                                         <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">著者 / 発行者</span>
-                                          <span className="text-paper-text-main font-semibold">
-                                            {book.authors || "ー"} / {book.publisher || "ー"}
+                                          <span className="text-paper-text-sub block font-bold text-[10px]">著者 と 発行所</span>
+                                          <span className="text-paper-text-main font-semibold break-words">
+                                            {book.authors || "ー"} ｜ {book.publisher || "ー"}
                                           </span>
                                         </div>
                                         <div className="text-right">
@@ -587,23 +546,24 @@ export default function HomePage() {
                                         </div>
                                       </div>
 
-                                      <div className="grid grid-cols-2 gap-2 text-xs">
+                                      <div className="grid grid-cols-2 gap-2">
                                         <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">発行月 / シリーズ</span>
-                                          <span className="font-mono text-paper-text-main text-xs">
-                                            {book.release_date || "ー"} {book.series ? `(${book.series})` : ""}
+                                          <span className="text-paper-text-sub block font-bold text-[10px]">発行月 と ISBN</span>
+                                          <span className="font-mono text-paper-text-main text-xs block">
+                                            {book.release_date || "ー"} / {book.isbn || "ー"}
                                           </span>
                                         </div>
                                         <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">ISBN</span>
-                                          <span className="font-mono text-paper-text-main text-xs">{book.isbn || "ー"}</span>
+                                          <span className="text-paper-text-sub block font-bold text-[10px]">シリーズ</span>
+                                          <span className="text-paper-text-main text-xs block">
+                                            {book.series || "ー"}
+                                          </span>
                                         </div>
                                       </div>
 
-                                      {/* メモ欄のみ表示 */}
                                       <div>
                                         <span className="text-paper-text-sub block font-bold text-[10px] mb-0.5">メモ</span>
-                                        <p className="text-paper-text-body bg-paper-card p-2 border border-paper-border text-xs italic">
+                                        <p className="text-paper-text-body bg-paper-card p-2 border border-paper-border text-xs italic break-words">
                                           {book.memo || "メモがありません"}
                                         </p>
                                       </div>
@@ -624,7 +584,6 @@ export default function HomePage() {
         )}
       </main>
 
-      {/* 共通フッター */}
       <FooterNav />
     </div>
   );
