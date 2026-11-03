@@ -12,21 +12,6 @@ function extractScopedTag(xml: string, tagName: string): string {
     .trim();
 }
 
-function extractAllTagContent(xml: string, tagName: string): string[] {
-  const safeTagName = tagName.replace(':', '\\:');
-  const regex = new RegExp(`<${safeTagName}[^>]*>([^]*?)</${safeTagName}>`, 'gi');
-  const results: string[] = [];
-  let match;
-  while ((match = regex.exec(xml)) !== null) {
-    const cleaned = match[1]
-      .replace(/<!\[CDATA\[([^]*?)\]\]>/g, '$1')
-      .replace(/<\/?[^>]+(>|$)/g, "")
-      .trim();
-    if (cleaned) results.push(cleaned);
-  }
-  return results;
-}
-
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const isbn = searchParams.get('isbn')?.replace(/-/g, '');
@@ -35,49 +20,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: '不正なISBNコードです。' }, { status: 400 });
   }
 
-  let bdSummary = '';
-  let bdSubtitle = '';
-  let bdPublishDate = '';
-
-  // ==========================================
-  // 0. openBD APIから詳細データを確実に取得
-  // ==========================================
   try {
-    const bdUrl = `https://api.openbd.jp/v1/get?isbn=${isbn}`;
-    const bdResponse = await fetch(bdUrl, { next: { revalidate: 3600 } });
-    if (bdResponse.ok) {
-      const bdData = await bdResponse.json();
-      if (bdData && bdData[0]) {
-        const bookInfo = bdData[0];
-        
-        bdSummary = bookInfo.summary?.description || '';
-        if (!bdSummary && bookInfo.onix?.CollateralDetail?.TextContent) {
-          const textContents = bookInfo.onix.CollateralDetail.TextContent;
-          const targetText = textContents.find((tc: any) => tc.TextType === '03' || tc.TextType === '02' || tc.TextType === '01');
-          if (targetText) bdSummary = targetText.Text || '';
-        }
-
-        bdSubtitle = bookInfo.summary?.subtitle || '';
-        if (!bdSubtitle && bookInfo.onix?.DescriptiveDetail?.TitleDetail?.TitleElement) {
-          const titleElem = bookInfo.onix.DescriptiveDetail.TitleDetail.TitleElement;
-          if (Array.isArray(titleElem)) {
-            bdSubtitle = titleElem.find((el: any) => el.Subtitle)?.Subtitle || '';
-          } else {
-            bdSubtitle = titleElem.Subtitle || '';
-          }
-        }
-
-        bdPublishDate = bookInfo.summary?.pubdate || '';
-      }
-    }
-  } catch (bdError) {
-    console.error('openBD API Fetch Error:', bdError);
-  }
-
-  try {
-    // ==========================================
-    // 1. 国立国会図書館サーチ（NDL）からの取得
-    // ==========================================
     const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}`;
     const ndlResponse = await fetch(ndlUrl, {
       headers: { 'Accept': 'application/xml', 'User-Agent': 'BookManagerApp/1.0' },
@@ -92,20 +35,6 @@ export async function GET(request: Request) {
     const itemMatch = xmlText.match(/<item[^>]*>([^]*?)<\/item>/i);
     
     if (!itemMatch) {
-      if (bdSummary || bdSubtitle) {
-        return NextResponse.json({
-          success: true,
-          title: '',
-          subTitle: bdSubtitle,
-          sortTitle: '',
-          volume: '1（単）',
-          series: '',
-          authors: '',
-          publisher: '',
-          releaseDate: bdPublishDate || '',
-          summary: bdSummary || ""
-        });
-      }
       return NextResponse.json({ success: false, error: '該当する書籍が見つかりませんでした。' });
     }
     const itemXml = itemMatch[1];
@@ -113,7 +42,7 @@ export async function GET(request: Request) {
     let rawTitle = extractScopedTag(itemXml, 'title');
     rawTitle = rawTitle.replace(/\s*-\s*国立国会図書館サーチ.*/i, '').trim();
 
-    // 巻数の抽出
+    // 巻数の抽出（取れない場合は「1（単）」）
     let volume = extractScopedTag(itemXml, 'dcndl:volumeTitle') || extractScopedTag(itemXml, 'dcndl:volume') || '';
     if (!volume) {
       const volumeMatch = rawTitle.match(/(?:第\s*(\d+)\s*巻|[\[〔（\(](\d+)[\]〕）\)]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
@@ -126,24 +55,19 @@ export async function GET(request: Request) {
       volume = '1（単）';
     }
 
-    // ==========================================
-    // 2. タイトルとサブタイトルの強力な分離・抽出処理
-    // ==========================================
-    let subTitle = extractScopedTag(itemXml, 'dcndl:subTitle') || extractScopedTag(itemXml, 'subTitle') || bdSubtitle || '';
+    // サブタイトル（dcndl:alternative / alternative または タイトル内のコロン分解）
+    let subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || extractScopedTag(itemXml, 'alternative') || '';
     let title = rawTitle;
 
-    // 長いタイトルやコロン、全角・半角スペース、括弧、ダッシュ等でサブタイトルが結合している場合の自動分解
     if (!subTitle) {
-      // 「 : 」「 ‐ 」「 - 」「 〜 」などで分割を試みる
-      const separators = /[:：\s*[-–—〜〜]\s*]/;
-      const parts = rawTitle.split(separators).filter(Boolean);
+      const parts = rawTitle.split(/[:：\s*[-–—〜〜]\s*]/).filter(Boolean);
       if (parts.length > 1) {
         title = parts[0].trim();
         subTitle = parts.slice(1).join(' ').trim();
       }
     }
 
-    // フリガナ
+    // フリガナ（タイトル読み）
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || extractScopedTag(itemXml, 'titleTranscription') || title;
     sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
 
@@ -161,34 +85,11 @@ export async function GET(request: Request) {
     // 発行者
     const publisher = extractScopedTag(itemXml, 'dc:publisher') || extractScopedTag(itemXml, 'publisher');
 
-    // 発行日（発売日）
-    let releaseDate = extractScopedTag(itemXml, 'dc:date') || extractScopedTag(itemXml, 'dcterms:issued') || extractScopedTag(itemXml, 'pubDate') || bdPublishDate;
+    // 発行日（dcterms:issued や dc:date）
+    let releaseDate = extractScopedTag(itemXml, 'dcterms:issued') || extractScopedTag(itemXml, 'dc:date') || extractScopedTag(itemXml, 'pubDate');
     releaseDate = releaseDate.replace(/[.\/]/g, '-');
     if (/^\d{4}-\d{2}$/.test(releaseDate)) releaseDate += '-01';
     if (/^\d{4}$/.test(releaseDate)) releaseDate += '-01-01';
-
-    // ==========================================
-    // 3. あらすじの抽出と補完
-    // ==========================================
-    let summary = '';
-    const descriptions = extractAllTagContent(itemXml, 'description');
-    
-    for (const desc of descriptions) {
-      if (desc && !desc.includes("タイトル：") && !desc.includes("責任表示：") && !desc.includes("出版者:") && desc.length > 10) {
-        summary = desc;
-        break;
-      }
-    }
-
-    if (!summary) {
-      summary = extractScopedTag(itemXml, 'dcndl:abstract');
-    }
-
-    if (bdSummary && bdSummary.length > (summary?.length || 0)) {
-      summary = bdSummary;
-    }
-
-    summary = summary ? summary.replace(/<\/?[^>]+(>|$)/g, "").trim() : "";
 
     return NextResponse.json({
       success: true,
@@ -199,8 +100,7 @@ export async function GET(request: Request) {
       series,
       authors,
       publisher,
-      releaseDate,
-      summary: summary || bdSummary || ""
+      releaseDate
     });
 
   } catch (error: any) {
