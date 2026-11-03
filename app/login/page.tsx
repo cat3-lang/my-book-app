@@ -12,7 +12,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  const handleLogin = async (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setErrorMsg("");
@@ -26,8 +26,8 @@ export default function LoginPage() {
       setErrorMsg("ログインに失敗しました。メールアドレスまたはパスワードをご確認ください。");
       setLoading(false);
     } else {
-      router.push("/");
-      router.refresh();
+      // router.push から window.location.href に変更して確実に本棚へ移動
+      window.location.href = "/";
     }
   };
 

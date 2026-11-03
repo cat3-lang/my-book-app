@@ -53,6 +53,7 @@ function getSeionGroup(sortTitle: string): string {
 const SEION_TABS = ["すべて", "★", "あ行", "か行", "さ行", "た行", "な行", "は行", "ま行", "や行", "ら行", "わ行", "英数字", "その他"];
 
 export default function HomePage() {
+  const [authChecking, setAuthChecking] = useState(true);
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -66,8 +67,18 @@ export default function HomePage() {
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Book>>({});
 
-  // 既存の本から登録されている「置き場所」の選択肢リストを自動生成
-  const existingLocations = Array.from(new Set(books.map(b => b.location).filter(Boolean))) as string[];
+  // 🔒 未ログイン時にログイン画面へ飛ばす処理
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        window.location.href = "/login";
+      } else {
+        setAuthChecking(false);
+      }
+    };
+    checkUser();
+  }, []);
 
   const fetchBooks = async () => {
     setLoading(true);
@@ -85,8 +96,21 @@ export default function HomePage() {
   };
 
   useEffect(() => {
-    fetchBooks();
-  }, []);
+    if (!authChecking) {
+      fetchBooks();
+    }
+  }, [authChecking]);
+
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-paper-bg flex items-center justify-center text-xs text-paper-text-sub font-mono">
+        認証確認中...
+      </div>
+    );
+  }
+
+  // 既存の本から登録されている「置き場所」の選択肢リストを自動生成
+  const existingLocations = Array.from(new Set(books.map(b => b.location).filter(Boolean))) as string[];
 
   const handleDelete = async (id: string, title: string, volume: string | null) => {
     const volStr = volume ? ` (${volume}巻)` : "";
@@ -586,7 +610,6 @@ export default function HomePage() {
                                       </div>
                                     </div>
                                   ) : (
-                                    /* 通常表示：置き場所を明確に表示 */
                                     <div className="space-y-2 text-xs">
                                       <div className="grid grid-cols-2 gap-2 items-center">
                                         <div>
@@ -620,36 +643,46 @@ export default function HomePage() {
 
                                       <div className="grid grid-cols-2 gap-2 items-center pt-1 border-t border-paper-border/50">
                                         <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">シリーズ名</span>
-                                          <span className="text-paper-text-main text-xs block break-words">
+                                          <span className="text-paper-text-sub block font-bold text-[10px]">シリーズ</span>
+                                          <span className="text-paper-text-main text-xs block">
                                             {book.series || "ー"}
                                           </span>
                                         </div>
                                         <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px] flex items-center gap-1">
-                                            <MapPin className="w-3 h-3 text-paper-caramel" /> 置き場所
-                                          </span>
-                                          <span className="text-paper-text-main text-xs block break-words font-medium">
+                                          <span className="text-paper-text-sub block font-bold text-[10px]">置き場所</span>
+                                          <span className="text-paper-text-main font-semibold text-xs block flex items-center gap-1">
+                                            <MapPin className="w-3 h-3 text-paper-caramel" />
                                             {book.location || "未設定"}
                                           </span>
                                         </div>
                                       </div>
 
-                                      <div className="pt-1 border-t border-paper-border/50">
-                                        <div className="flex items-center justify-between mb-0.5">
+                                      {book.memo && (
+                                        <div className="pt-1 border-t border-paper-border/50">
                                           <span className="text-paper-text-sub block font-bold text-[10px]">メモ</span>
-                                          <button
-                                            type="button"
-                                            onClick={(e) => startEditing(book, e)}
-                                            className="px-2 py-0.5 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                                          >
-                                            <Edit3 className="w-3 h-3 text-paper-caramel" />
-                                            <span>編集</span>
-                                          </button>
+                                          <p className="bg-paper-card p-1.5 border border-paper-border text-paper-text-body break-words">
+                                            {book.memo}
+                                          </p>
                                         </div>
-                                        <p className="text-paper-text-body bg-paper-card p-2 border border-paper-border text-xs italic break-words">
-                                          {book.memo || "メモがありません"}
-                                        </p>
+                                      )}
+
+                                      <div className="flex items-center justify-between pt-2 border-t border-paper-border">
+                                        <button
+                                          type="button"
+                                          onClick={(e) => handleDelete(book.id, book.title, book.volume)}
+                                          className="px-2.5 py-1 bg-paper-danger text-white text-xs flex items-center gap-1 font-bold cursor-pointer"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                          <span>削除</span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => startEditing(book, e)}
+                                          className="px-3 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main text-xs font-bold flex items-center gap-1 cursor-pointer"
+                                        >
+                                          <Edit3 className="w-3.5 h-3.5 text-paper-caramel" />
+                                          <span>編集</span>
+                                        </button>
                                       </div>
                                     </div>
                                   )}
