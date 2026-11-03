@@ -24,101 +24,108 @@ export async function GET(request: Request) {
   }
 
   try {
+    // ==========================================
+    // 1. 国立国会図書館サーチ（NDL）からの取得
+    // ==========================================
     const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}`;
-    const response = await fetch(ndlUrl, {
+    const ndlResponse = await fetch(ndlUrl, {
       headers: { 'Accept': 'application/xml', 'User-Agent': 'BookManagerApp/1.0' },
       next: { revalidate: 3600 }
     });
 
-    if (!response.ok) {
+    if (!ndlResponse.ok) {
       throw new Error('国立国会図書館APIへのアクセスに失敗しました。');
     }
 
-    const xmlText = await response.text();
-
+    const xmlText = await ndlResponse.text();
     const itemMatch = xmlText.match(/<item[^>]*>([^]*?)<\/item>/i);
+    
     if (!itemMatch) {
       return NextResponse.json({ success: false, error: '該当する書籍が見つかりませんでした。' });
     }
     const itemXml = itemMatch[1];
 
-    // 1. タイトル ＆ 巻数の抽出補正
     let title = extractTagContent(itemXml, 'title');
     title = title.replace(/\s*-\s*国立国会図書館サーチ.*/i, '').trim();
 
-    let volume = extractScopedTag(itemXml, 'dcndl:volumeTitle') || extractScopedTag(itemXml, 'dcndl:volume') || '';
+    let volumeTitle = extractScopedTag(itemXml, 'dcndl:volumeTitle') || '';
+    let volume = extractScopedTag(itemXml, 'dcndl:volume') || '';
 
     if (!volume) {
-      const joinedVolumeMatch = title.match(/[\s ]+(\d+)\s*$/);
-      if (joinedVolumeMatch) {
-        volume = joinedVolumeMatch[1];
-        title = title.replace(/[\s ]+(\d+)\s*$/, '').trim();
-      } else {
-        const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\(（](\d+)[\)）]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
-        if (volumeMatch) {
-          volume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3] || volumeMatch[4];
-        }
+      const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\[〔（\(](\d+)[\]〕）\)]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
+      if (volumeMatch) {
+        volume = volumeMatch[1] || volumeMatch[2] || volumeMatch[3] || volumeMatch[4];
+        title = title.replace(/(?:第\s*\d+\s*巻|[\[〔（\(]\d+[\]〕）\)]|vol\.?\s*\d+|\b\d+\s*巻)/i, '').trim();
       }
     }
 
-    // サブタイトルの取得 (dcndl:subTitle など)
-    let subTitle = extractScopedTag(itemXml, 'dcndl:subTitle') || extractScopedTag(itemXml, 'subTitle');
+    if (volumeTitle && Array.from(volumeTitle).some(c => !"0123456789０１２３４５６７８９".includes(c))) {
+      if (title.includes(volumeTitle)) {
+        title = title.replace(volumeTitle, '').trim();
+      }
+      title = `${title} 〜${volumeTitle}〜`;
+    }
 
-    // 2. フリガナ（タイトル読み）
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || extractScopedTag(itemXml, 'titleTranscription') || title;
     sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
 
-    // 3. シリーズ名
     let series = extractScopedTag(itemXml, 'dcndl:seriesTitle') || extractScopedTag(itemXml, 'seriesTitle');
     if (!series) {
-      const seriesMatch = title.match(/^[【\[（](.+?)[】\]）]/);
+      const seriesMatch = title.match(/^[【\[(](.+?)[】\])]/);
       if (seriesMatch) series = seriesMatch[1];
     }
 
-    // 4. 著者名
     let authors = extractScopedTag(itemXml, 'dc:creator') || extractScopedTag(itemXml, 'author');
     authors = authors.replace(/,\s*/g, ' ').replace(/\s*[著]\s*/g, '').trim();
 
-    // 5. 発行社
     const publisher = extractScopedTag(itemXml, 'dc:publisher') || extractScopedTag(itemXml, 'publisher');
 
-    // 6. あらすじ (description ＆ 鉄壁の dcndl:abstract 保険)
-    let summary = extractScopedTag(itemXml, 'description');
-    if (summary.includes("概要：") || summary.includes("概要:")) {
-      const summaryMatch = summary.match(/(?:概要|内容紹介)[：:]\s*([^]*?)(?:<li>|$)/);
-      if (summaryMatch) summary = summaryMatch[1].trim();
-    } else if (summary.includes("タイトル：") || summary.includes("責任表示：")) {
-      const cleanDescParts = summary.split(/タイトル：|責任表示：|タイトル:|責任表示:|NDC/);
-      summary = cleanDescParts[0].trim();
-    }
-
-    if (!summary || summary.length < 10) {
-      const abstract = extractScopedTag(itemXml, 'dcndl:abstract');
-      if (abstract && abstract.length > summary.length) {
-        summary = abstract;
-      }
-    }
-    summary = summary.replace(/<\/?[^>]+(>|$)/g, "").trim();
-
-    // 7. 発売日
-    let releaseDate = extractScopedTag(itemXml, 'dc:date');
-    if (!releaseDate) releaseDate = extractScopedTag(itemXml, 'dcterms:issued');
-    if (!releaseDate) releaseDate = extractScopedTag(itemXml, 'pubDate');
+    let releaseDate = extractScopedTag(itemXml, 'dc:date') || extractScopedTag(itemXml, 'dcterms:issued') || extractScopedTag(itemXml, 'pubDate');
     releaseDate = releaseDate.replace(/[.\/]/g, '-');
     if (/^\d{4}-\d{2}$/.test(releaseDate)) releaseDate += '-01';
     if (/^\d{4}$/.test(releaseDate)) releaseDate += '-01-01';
 
+
+    // ==========================================
+    // 2. あらすじの救出（Google Books API の相乗り）
+    // ==========================================
+    let summary = '';
+    const ndlDesc = extractScopedTag(itemXml, 'description');
+    
+    if (ndlDesc && !ndlDesc.includes("タイトル：") && !ndlDesc.includes("責任表示：") && ndlDesc.length > 20) {
+      summary = ndlDesc;
+    } else {
+      summary = extractScopedTag(itemXml, 'dcndl:abstract');
+    }
+
+    if (!summary || summary.length < 15 || summary.includes("：")) {
+      try {
+        const googleUrl = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
+        const googleResponse = await fetch(googleUrl, { next: { revalidate: 3600 } });
+        
+        if (googleResponse.ok) {
+          const googleData = await googleResponse.json();
+          if (googleData.items && googleData.items[0]?.volumeInfo?.description) {
+            summary = googleData.items[0].volumeInfo.description;
+          }
+        }
+      } catch (gError) {
+        console.error('Google Books API Fetch Error:', gError);
+      }
+    }
+
+    summary = summary.replace(/<\/?[^>]+(>|$)/g, "").trim();
+
     return NextResponse.json({
       success: true,
       title,
-      subTitle,
       sortTitle,
       volume,
       series,
       authors,
       publisher,
       releaseDate,
-      summary
+      summary: summary || "あらすじ情報はありません"
     });
 
   } catch (error: any) {

@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, RefreshCw, Search, FileText, Loader2, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.48";
+const APP_VERSION = "v1.0.49";
 
 type ExistingBookInfo = {
   id: string;
@@ -343,7 +343,7 @@ export default function AddBookPage() {
               <BookOpen className="w-3.5 h-3.5 text-paper-caramel" /> 書籍詳細
             </h2>
 
-            {/* 1. 一番上：ステータス（見出しなし、ボタンのみ） */}
+            {/* 1. 一番上：ステータス */}
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -369,7 +369,7 @@ export default function AddBookPage() {
               </button>
             </div>
 
-            {/* 2. 2番目：登録日 */}
+            {/* 2. 登録日 */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
                 <Calendar className="w-3 h-3 text-paper-caramel" /> 登録日
@@ -382,7 +382,7 @@ export default function AddBookPage() {
               />
             </div>
 
-            {/* 3. ISBN ＆ 真横に読み取りボタン */}
+            {/* 3. ISBN ＆ 読み取り ＆ 自動取得ボタン */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
               <div className="flex gap-2 items-center">
@@ -400,6 +400,19 @@ export default function AddBookPage() {
                 >
                   <Camera className="w-3.5 h-3.5 text-paper-caramel" />
                   <span>読み取り</span>
+                </button>
+              </div>
+
+              {/* 自動取得ボタン（ISBNのすぐ下） */}
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => handleAutoFetchAndCheck()}
+                  disabled={fetching}
+                  className="w-full py-2.5 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold transition flex items-center justify-center gap-1.5 border border-paper-border cursor-pointer shadow-2xs"
+                >
+                  {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-paper-caramel" />}
+                  <span>{fetching ? "取得中..." : "自動取得"}</span>
                 </button>
               </div>
 
@@ -434,7 +447,7 @@ export default function AddBookPage() {
               )}
             </div>
 
-            {/* --- 新・指定順序のフォーム項目 --- */}
+            {/* --- ご指定順序のフォーム項目 --- */}
 
             {/* タイトル ＆ フリガナ */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-paper-border">
@@ -542,19 +555,6 @@ export default function AddBookPage() {
                 onChange={(e) => setSummary(e.target.value)}
                 className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main focus:outline-none focus:border-paper-caramel leading-relaxed"
               />
-            </div>
-
-            {/* 自動取得ボタン（手入力後の取得用としてメモ欄の上に配置） */}
-            <div>
-              <button
-                type="button"
-                onClick={() => handleAutoFetchAndCheck()}
-                disabled={fetching}
-                className="w-full py-2.5 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold transition flex items-center justify-center gap-1.5 border border-paper-border cursor-pointer shadow-2xs"
-              >
-                {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-paper-caramel" />}
-                <span>{fetching ? "取得中..." : "自動取得"}</span>
-              </button>
             </div>
 
             {/* メモ欄（一番下に戻しました） */}
