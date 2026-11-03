@@ -39,13 +39,10 @@ export async function GET(request: Request) {
     }
     const itemXml = itemMatch[1];
 
-    let rawTitle = extractScopedTag(itemXml, 'title');
-    rawTitle = rawTitle.replace(/\s*-\s*国立国会図書館サーチ.*/i, '').trim();
+    let title = extractScopedTag(itemXml, 'title');
+    title = title.replace(/\s*-\s*国立国会図書館サーチ.*/i, '').trim();
 
-    // 先に title を定義しておく
-    let title = rawTitle;
-
-    // 巻数の抽出（取れない場合は「1（単）」）
+    // 巻数の抽出
     let volume = extractScopedTag(itemXml, 'dcndl:volumeTitle') || extractScopedTag(itemXml, 'dcndl:volume') || '';
     if (!volume) {
       const volumeMatch = title.match(/(?:第\s*(\d+)\s*巻|[\[〔（\(](\d+)[\]〕）\)]|vol\.?\s*(\d+)|\b(\d+)\s*巻)/i);
@@ -58,39 +55,19 @@ export async function GET(request: Request) {
       volume = '1（単）';
     }
 
-    // ==========================================
-    // その他タイトル（サブタイトル）の抽出と整形
-    // ==========================================
-    let rawAlternative = extractScopedTag(itemXml, 'dcndl:alternative') || 
-                         extractScopedTag(itemXml, 'alternative') || 
-                         extractScopedTag(itemXml, 'dcndl:subTitle') || 
-                         subTitleFromXml(itemXml) || '';
+    // サブタイトル（その他のタイトル：専用タグの値だけをそのまま取得）
+    const subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || 
+                     extractScopedTag(itemXml, 'alternative') || 
+                     extractScopedTag(itemXml, 'dcndl:subTitle') || 
+                     extractScopedTag(itemXml, 'subTitle') || '';
 
-    let subTitle = rawAlternative;
-    if (subTitle) {
-      const cleanSubMatch = subTitle.match(/^([^\s ]+(?:\s+[^\s ]+)*?)(?:\s+[ア-ンA-Za-z0-9ー ]+)+$/);
-      if (cleanSubMatch) {
-        subTitle = cleanSubMatch[1].trim();
-      } else {
-        const parts = subTitle.split(/[\s ]+/);
-        const jpParts = parts.filter(p => !/^[ァ-ヶー]+$/.test(p) && !/^[A-Za-z]+$/.test(p));
-        if (jpParts.length > 0) {
-          subTitle = jpParts.join(' ');
-        }
-      }
-    }
-
-    // ==========================================
-    // フリガナ（タイトル読み）の取得強化
-    // ==========================================
+    // フリガナ（タイトル読み：そのまま取得）
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || 
                     extractScopedTag(itemXml, 'titleTranscription') || 
                     extractScopedTag(itemXml, 'dcndl:alternativeTranscription') || '';
                     
     if (!sortTitle) {
       sortTitle = title;
-    } else {
-      sortTitle = sortTitle.replace(/[\s ]+[ア-ン0-9０-９]+\s*$/, '').trim();
     }
 
     // シリーズ名
@@ -139,10 +116,4 @@ export async function GET(request: Request) {
     console.error('Book fetch error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
-}
-
-// 補助関数
-function subTitleFromXml(xml: string): string {
-  const match = xml.match(/<dcndl:alternative[^>]*>([^]*?)<\/dcndl:alternative>/i);
-  return match ? match[1].replace(/<\/?[^>]+(>|$)/g, "").trim() : "";
 }
