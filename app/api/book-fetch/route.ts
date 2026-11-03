@@ -21,7 +21,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}`;
+    // 💡 修正ポイント：&recordSchema=dcndl を追加して詳細なXML（その他タイトル等を含む）を取得する
+    const ndlUrl = `https://ndlsearch.ndl.go.jp/api/opensearch?isbn=${isbn}&recordSchema=dcndl`;
     const ndlResponse = await fetch(ndlUrl, {
       headers: { 'Accept': 'application/xml', 'User-Agent': 'BookManagerApp/1.0' },
       next: { revalidate: 3600 }
@@ -55,12 +56,12 @@ export async function GET(request: Request) {
       volume = '1（単）';
     }
 
-    // サブタイトル（その他のタイトル：ご提案の優先順位に最適化）
+    // その他タイトル（サブタイトル）：dcndl:alternative や dcterms:alternative を確実に取得
     const subTitle = extractScopedTag(itemXml, 'dcndl:alternative') || 
                      extractScopedTag(itemXml, 'dcterms:alternative') || 
                      extractScopedTag(itemXml, 'alternative') || '';
 
-    // フリガナ（タイトル読み：そのまま取得）
+    // フリガナ（タイトル読み）
     let sortTitle = extractScopedTag(itemXml, 'dcndl:titleTranscription') || 
                     extractScopedTag(itemXml, 'titleTranscription') || 
                     extractScopedTag(itemXml, 'dcndl:alternativeTranscription') || '';
