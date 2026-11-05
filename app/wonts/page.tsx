@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Plus, ChevronDown, ChevronRight, Trash2, Edit3, User, Image as ImageIcon, X, ArrowUpDown, Search, Camera } from "lucide-react";
+import { ArrowLeft, Plus, ChevronDown, ChevronRight, Trash2, Edit3, User, Image as ImageIcon, X, ArrowUpDown, Camera } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.73";
+const APP_VERSION = "v1.0.74";
 
 type WantBook = {
   id: string;
@@ -33,8 +33,8 @@ export default function WantBookPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  // 📷 折りたたみ式のカメラ/写真選択エリアの開閉状態
-  const [isCameraAccordionOpen, setIsCameraAccordionOpen] = useState(false);
+  // 📷 確実に開閉を切り替えるための折りたたみ用ステート
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
 
   const [form, setForm] = useState({
     title: "",
@@ -73,7 +73,7 @@ export default function WantBookPage() {
 
   const handleOpenAddModal = () => {
     setEditingId(null);
-    setIsCameraAccordionOpen(false);
+    setIsCameraOpen(false); // 開いたときはカメラエリアを閉じておく
     setForm({
       title: "",
       authors: "",
@@ -90,7 +90,7 @@ export default function WantBookPage() {
   const handleOpenEditModal = (book: WantBook, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingId(book.id);
-    setIsCameraAccordionOpen(false);
+    setIsCameraOpen(false);
     setForm({
       title: book.title || "",
       authors: book.authors || "",
@@ -334,21 +334,22 @@ export default function WantBookPage() {
 
             <form onSubmit={handleSave} className="space-y-3 text-xs">
               
-              {/* 📷 【折りたたみ式】カメラ撮影 / 写真選択エリア */}
+              {/* 📷 【確実に折りたためる】カメラ撮影 / 写真選択アコーディオン */}
               <div className="border border-paper-border bg-paper-sub rounded-xs overflow-hidden">
                 <button
                   type="button"
-                  onClick={() => setIsCameraAccordionOpen(!isCameraAccordionOpen)}
+                  onClick={() => setIsCameraOpen(!isCameraOpen)}
                   className="w-full p-2.5 text-xs font-bold text-paper-text-main flex items-center justify-between hover:bg-paper-border/50 transition cursor-pointer"
                 >
                   <span className="flex items-center gap-1.5">
                     <Camera className="w-4 h-4 text-paper-caramel" />
                     カメラで撮影・写真を追加
                   </span>
-                  {isCameraAccordionOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  {isCameraOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 </button>
 
-                {isCameraAccordionOpen && (
+                {/* 開いているときだけ表示される中身 */}
+                {isCameraOpen && (
                   <div className="p-3 bg-paper-inner border-t border-paper-border space-y-3">
                     <div className="flex items-center justify-between">
                       <button
