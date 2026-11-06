@@ -3,10 +3,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, ArrowUpDown, Camera, Save, Plus } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, ArrowUpDown, Camera, Upload, ScanLine, Save, Plus } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
+import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.80";
+const APP_VERSION = "v1.0.81";
 
 type WantBook = {
   id: string;
@@ -15,7 +16,6 @@ type WantBook = {
   publisher: string | null;
   isbn: string | null;
   status: string;
-  st_status: string | null;
   requester: string | null;
   memo: string | null;
   image_url: string | null;
@@ -25,10 +25,9 @@ type WantBook = {
 export default function WantBookPage() {
   const [books, setBooks] = useState<WantBook[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sortBy, setSortBy] = useState<"date" | "status">("date");
+  const [sortBy, setSortBy] = useState<"date">("date");
   const [expandedIds, setExpandedIds] = useState<{ [key: string]: boolean }>({});
   
-  // フォーム開閉状態（デフォルトで開いた状態、またはワンタップで切り替え）
   const [isFormOpen, setIsFormOpen] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -37,12 +36,17 @@ export default function WantBookPage() {
     authors: "",
     publisher: "",
     isbn: "",
-    st_status: "",
     requester: "",
     memo: "",
     image_url: "",
   });
 
+  const [errorMessage, setErrorMessage] = useState("");
+  const [fetching, setFetching] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchWantBooks = async () => {
@@ -61,6 +65,9 @@ export default function WantBookPage() {
 
   useEffect(() => {
     fetchWantBooks();
+    return () => {
+      stopScanner();
+    };
   }, []);
 
   const toggleExpand = (id: string) => {
@@ -75,7 +82,6 @@ export default function WantBookPage() {
       authors: book.authors || "",
       publisher: book.publisher || "",
       isbn: book.isbn || "",
-      st_status: book.st_status || "",
       requester: book.requester || "",
       memo: book.memo || "",
       image_url: book.image_url || "",
@@ -91,26 +97,143 @@ export default function WantBookPage() {
       authors: "",
       publisher: "",
       isbn: "",
-      st_status: "",
       requester: "",
       memo: "",
       image_url: "",
     });
+    setErrorMessage("");
   };
 
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        setForm(prev => ({ ...prev, image_url: uploadEvent.target?.result as string }));
+  // 画像圧縮＆Base64変換
+  const processImageFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (uploadEvent) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 800;
+        if (width > height && width > maxDim) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else if (height >= width && height > maxDim) {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx?.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        setForm(prev => ({ ...prev, image_url: dataUrl }));
       };
-      reader.readAsDataURL(file);
+      img.src = uploadEvent.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // カメラ撮影用
+  const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processImageFile(file);
+  };
+
+  // ファイル選択用
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processImageFile(file);
+  };
+
+  // ISBN自動取得
+  const handleAutoFetch = async () => {
+    const cleanIsbn = form.isbn.trim().replace(/-/g, "");
+    if (!cleanIsbn) {
+      setErrorMessage("ISBNを入力してください");
+      return;
     }
+    setFetching(true);
+    setErrorMessage("");
+    try {
+      const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`);
+      const data = await res.json();
+      if (data && data.success) {
+        setForm(prev => ({
+          ...prev,
+          title: data.title || prev.title,
+          authors: data.authors || prev.authors,
+          publisher: data.publisher || prev.publisher,
+        }));
+      } else {
+        setErrorMessage("書籍が見つかりませんでした");
+      }
+    } catch (err) {
+      setErrorMessage("取得に失敗しました");
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  // バーコードスキャン開始
+  const startScanner = async () => {
+    setScanning(true);
+    setErrorMessage("");
+    try {
+      const scanner = new Html5Qrcode("reader-want");
+      scannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 100 } },
+        async (decodedText) => {
+          if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
+            await stopScanner();
+            setForm(prev => ({ ...prev, isbn: decodedText }));
+            // 自動取得も同時に走らせる
+            const cleanIsbn = decodedText.trim().replace(/-/g, "");
+            setFetching(true);
+            try {
+              const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`);
+              const data = await res.json();
+              if (data && data.success) {
+                setForm(prev => ({
+                  ...prev,
+                  title: data.title || prev.title,
+                  authors: data.authors || prev.authors,
+                  publisher: data.publisher || prev.publisher,
+                }));
+              }
+            } catch (e) {}
+            setFetching(false);
+          }
+        },
+        () => {}
+      );
+    } catch (err) {
+      setScanning(false);
+      setErrorMessage("カメラの起動に失敗しました");
+    }
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        await scannerRef.current.stop();
+        scannerRef.current.clear();
+      } catch (e) {}
+      scannerRef.current = null;
+    }
+    setScanning(false);
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage("");
+
+    // タイトルまたは写真のどちらかが必須
+    if (!form.title.trim() && !form.image_url) {
+      setErrorMessage("タイトルまたは写真のいずれかを入力してください");
+      return;
+    }
 
     const finalTitle = form.title.trim() || (form.image_url ? "（写真のみ）" : "（無題）");
 
@@ -120,7 +243,6 @@ export default function WantBookPage() {
       publisher: form.publisher.trim() || null,
       isbn: form.isbn.trim() || null,
       status: "欲しい",
-      st_status: form.st_status.trim() || null,
       requester: form.requester.trim() || null,
       memo: form.memo.trim() || null,
       image_url: form.image_url.trim() || null,
@@ -128,11 +250,17 @@ export default function WantBookPage() {
 
     if (editingId) {
       const { error } = await supabase.from("books").update(payload).eq("id", editingId);
-      if (error) alert("更新失敗: " + error.message);
+      if (error) {
+        setErrorMessage("更新失敗: " + error.message);
+        return;
+      }
       setEditingId(null);
     } else {
       const { error } = await supabase.from("books").insert([{ ...payload, created_at: new Date().toISOString() }]);
-      if (error) alert("登録失敗: " + error.message);
+      if (error) {
+        setErrorMessage("登録失敗: " + error.message);
+        return;
+      }
     }
 
     setForm({
@@ -140,7 +268,6 @@ export default function WantBookPage() {
       authors: "",
       publisher: "",
       isbn: "",
-      st_status: "",
       requester: "",
       memo: "",
       image_url: "",
@@ -151,7 +278,7 @@ export default function WantBookPage() {
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!window.confirm("この本を削除しますか？")) return;
+    if (!window.confirm("削除しますか？")) return;
     const { error } = await supabase.from("books").delete().eq("id", id);
     if (!error) {
       setBooks(books.filter(b => b.id !== id));
@@ -159,14 +286,13 @@ export default function WantBookPage() {
   };
 
   const sortedBooks = [...books].sort((a, b) => {
-    if (sortBy === "status") return (a.st_status || "").localeCompare(b.st_status || "", "ja");
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-36 relative">
       
-      {/* 🏷️ ヘッダー（右端に小さくバージョン表記） */}
+      {/* ヘッダー */}
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-3 py-2.5 md:px-6">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Link
@@ -187,7 +313,7 @@ export default function WantBookPage() {
 
       <main className="max-w-3xl mx-auto px-3 md:px-6 py-4 space-y-4">
         
-        {/* 📥 ページ上部埋め込み・折りたたみ式入力フォーム */}
+        {/* 登録・編集フォーム（折りたたみ） */}
         <section className="bg-paper-card border border-paper-border shadow-xs rounded-xs overflow-hidden">
           <button
             type="button"
@@ -205,28 +331,92 @@ export default function WantBookPage() {
 
           {isFormOpen && (
             <div className="p-4 border-t border-paper-border space-y-3 bg-paper-card">
+              
+              {errorMessage && (
+                <div className="p-2 bg-red-950/20 border border-red-800 text-red-700 text-xs rounded">
+                  {errorMessage}
+                </div>
+              )}
+
               <form onSubmit={handleSave} className="space-y-3 text-xs">
                 
-                {/* カメラ・写真選択セクション */}
-                <div className="bg-paper-inner border border-paper-border p-3 rounded-xs space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-paper-text-main flex items-center gap-1.5">
-                      <Camera className="w-4 h-4 text-paper-caramel" />
-                      写真（カメラ撮影・画像選択）
-                    </span>
+                {/* ISBN & バーコードスキャン */}
+                <div className="space-y-1">
+                  <label className="block font-bold text-paper-text-sub">ISBN</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={form.isbn}
+                      onChange={(e) => setForm({ ...form, isbn: e.target.value })}
+                      className="flex-1 bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main font-mono"
+                    />
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={handleAutoFetch}
+                      disabled={fetching}
+                      className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main hover:bg-paper-border cursor-pointer disabled:opacity-50"
+                    >
+                      {fetching ? "取得中..." : "自動取得"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={startScanner}
+                      className="px-3 py-1.5 bg-paper-caramel text-white font-bold flex items-center gap-1 cursor-pointer hover:opacity-90"
+                    >
+                      <ScanLine className="w-4 h-4" />
+                      <span>スキャン</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* スキャンカメラ表示エリア */}
+                {scanning && (
+                  <div className="p-3 bg-paper-inner border border-paper-border space-y-2">
+                    <div id="reader-want" className="w-full overflow-hidden"></div>
+                    <button
+                      type="button"
+                      onClick={stopScanner}
+                      className="w-full py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main cursor-pointer"
+                    >
+                      スキャンを閉じる
+                    </button>
+                  </div>
+                )}
+
+                {/* カメラ撮影 / ファイル選択（別々のボタン） */}
+                <div className="bg-paper-inner border border-paper-border p-3 rounded-xs space-y-2">
+                  <span className="block font-bold text-paper-text-main">写真</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => cameraInputRef.current?.click()}
                       className="px-3 py-1.5 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1"
                     >
                       <Camera className="w-3.5 h-3.5" />
-                      <span>ファイル選択 / カメラ</span>
+                      <span>カメラで撮影</span>
+                    </button>
+                    <input
+                      type="file"
+                      ref={cameraInputRef}
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleCameraChange}
+                      className="hidden"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-1.5 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>ファイル選択</span>
                     </button>
                     <input
                       type="file"
                       ref={fileInputRef}
                       accept="image/*"
-                      onChange={handleImageFileChange}
+                      onChange={handleFileChange}
                       className="hidden"
                     />
                   </div>
@@ -247,37 +437,13 @@ export default function WantBookPage() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-paper-text-sub mb-1">タイトル（空欄でも写真だけで保存可能）</label>
+                  <label className="block font-bold text-paper-text-sub mb-1">タイトル</label>
                   <input
                     type="text"
                     value={form.title}
                     onChange={(e) => setForm({ ...form, title: e.target.value })}
                     className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
-                    placeholder="本のタイトル（省略可）"
                   />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block font-bold text-paper-text-sub mb-1">状態</label>
-                    <input
-                      type="text"
-                      value={form.st_status}
-                      onChange={(e) => setForm({ ...form, st_status: e.target.value })}
-                      className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main font-bold"
-                      placeholder="例: 予約中、発売待ち"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-paper-text-sub mb-1">希望者</label>
-                    <input
-                      type="text"
-                      value={form.requester}
-                      onChange={(e) => setForm({ ...form, requester: e.target.value })}
-                      className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
-                      placeholder="例: パパ、子ども"
-                    />
-                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -302,13 +468,22 @@ export default function WantBookPage() {
                 </div>
 
                 <div>
+                  <label className="block font-bold text-paper-text-sub mb-1">希望者</label>
+                  <input
+                    type="text"
+                    value={form.requester}
+                    onChange={(e) => setForm({ ...form, requester: e.target.value })}
+                    className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                  />
+                </div>
+
+                <div>
                   <label className="block font-bold text-paper-text-sub mb-1">メモ</label>
                   <textarea
                     rows={2}
                     value={form.memo}
                     onChange={(e) => setForm({ ...form, memo: e.target.value })}
                     className="w-full bg-paper-inner border border-paper-border p-2 text-paper-text-main"
-                    placeholder="メモなど"
                   />
                 </div>
 
@@ -327,7 +502,7 @@ export default function WantBookPage() {
                     className="px-6 py-2 bg-paper-caramel text-white font-bold cursor-pointer shadow-xs hover:opacity-95 flex items-center gap-1.5"
                   >
                     <Save className="w-4 h-4" />
-                    <span>{editingId ? "変更を保存する" : "この内容で登録する"}</span>
+                    <span>{editingId ? "変更を保存する" : "登録する"}</span>
                   </button>
                 </div>
               </form>
@@ -335,25 +510,14 @@ export default function WantBookPage() {
           )}
         </section>
 
-        {/* 📊 件数カウンターと並び替えバー */}
+        {/* 件数カウンター */}
         <div className="bg-paper-card border border-paper-border p-3 flex items-center justify-between shadow-2xs">
           <div className="text-xs font-bold text-paper-text-sub font-mono">
             登録数：{books.length} 冊
           </div>
-          <div className="flex items-center gap-1.5">
-            <ArrowUpDown className="w-3.5 h-3.5 text-paper-text-sub" />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-paper-sub border border-paper-border text-xs text-paper-text-main px-2.5 py-1 focus:outline-none cursor-pointer font-bold"
-            >
-              <option value="date">登録日順</option>
-              <option value="status">状態順</option>
-            </select>
-          </div>
         </div>
 
-        {/* 📚 欲しい本リスト一覧 */}
+        {/* 欲しい本リスト一覧 */}
         {loading ? (
           <p className="text-center text-paper-text-sub py-12 text-xs">読み込み中...</p>
         ) : sortedBooks.length === 0 ? (
@@ -382,11 +546,6 @@ export default function WantBookPage() {
                         {book.title}
                       </div>
                     </div>
-                    {book.st_status && (
-                      <span className="bg-[#EAE2B7] text-[#593922] text-[11px] font-extrabold px-2.5 py-0.5 border border-[#D9CFAF] shrink-0">
-                        {book.st_status}
-                      </span>
-                    )}
                   </div>
 
                   {book.requester && (
