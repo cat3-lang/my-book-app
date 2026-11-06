@@ -3,10 +3,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, Image as ImageIcon, X, ArrowUpDown, Camera, Save, Plus } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, ArrowUpDown, Camera, Save, Plus } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.79";
+const APP_VERSION = "v1.0.80";
 
 type WantBook = {
   id: string;
@@ -28,7 +28,7 @@ export default function WantBookPage() {
   const [sortBy, setSortBy] = useState<"date" | "status">("date");
   const [expandedIds, setExpandedIds] = useState<{ [key: string]: boolean }>({});
   
-  // 🔽 ページ上部の登録フォームの折りたたみ開閉状態
+  // フォーム開閉状態（デフォルトで開いた状態、またはワンタップで切り替え）
   const [isFormOpen, setIsFormOpen] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -98,7 +98,6 @@ export default function WantBookPage() {
     });
   };
 
-  // 写真選択（ローカルファイル・カメラ撮影）
   const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -113,7 +112,6 @@ export default function WantBookPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // タイトルが空欄でも、写真があれば「（写真のみ）」、なければ「（無題）」として保存
     const finalTitle = form.title.trim() || (form.image_url ? "（写真のみ）" : "（無題）");
 
     const payload = {
@@ -137,7 +135,6 @@ export default function WantBookPage() {
       if (error) alert("登録失敗: " + error.message);
     }
 
-    // フォームをクリア
     setForm({
       title: "",
       authors: "",
@@ -167,7 +164,9 @@ export default function WantBookPage() {
   });
 
   return (
-    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-32 relative">
+    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-36 relative">
+      
+      {/* 🏷️ ヘッダー（右端に小さくバージョン表記） */}
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-3 py-2.5 md:px-6">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Link
@@ -178,48 +177,50 @@ export default function WantBookPage() {
             <span>本棚</span>
           </Link>
           <h1 className="text-sm font-bold text-paper-text-main">
-            欲しい本
+            欲しい本リスト
           </h1>
-          <div className="text-[11px] font-mono text-paper-text-sub">
+          <span className="text-[10px] font-mono text-paper-text-sub opacity-60">
             {APP_VERSION}
-          </div>
+          </span>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-2 md:px-6 py-4 space-y-4">
+      <main className="max-w-3xl mx-auto px-3 md:px-6 py-4 space-y-4">
         
-        {/* 🔽 ページ上部：折りたたみ式の埋め込み登録・編集フォーム */}
-        <div className="bg-paper-card border border-paper-border shadow-xs rounded-xs overflow-hidden">
+        {/* 📥 ページ上部埋め込み・折りたたみ式入力フォーム */}
+        <section className="bg-paper-card border border-paper-border shadow-xs rounded-xs overflow-hidden">
           <button
             type="button"
             onClick={() => setIsFormOpen(!isFormOpen)}
-            className="w-full p-3 bg-paper-sub hover:bg-paper-border/60 transition flex items-center justify-between text-xs font-bold text-paper-text-main cursor-pointer"
+            className="w-full px-4 py-3 bg-paper-sub hover:bg-paper-border/50 transition flex items-center justify-between text-xs font-bold text-paper-text-main cursor-pointer"
           >
-            <span className="flex items-center gap-1.5">
-              <Plus className="w-4 h-4 text-paper-caramel" />
-              {editingId ? "欲しい本を編集中..." : "新しい欲しい本を追加する（タップで開閉）"}
+            <span className="flex items-center gap-2 text-paper-caramel">
+              <Plus className="w-4 h-4" />
+              <span>{editingId ? "欲しい本情報を編集中..." : "新しい本を登録・撮影する"}</span>
             </span>
-            {isFormOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            <span className="text-paper-text-sub text-[11px]">
+              {isFormOpen ? "▲ 閉じる" : "▼ 開く"}
+            </span>
           </button>
 
           {isFormOpen && (
             <div className="p-4 border-t border-paper-border space-y-3 bg-paper-card">
               <form onSubmit={handleSave} className="space-y-3 text-xs">
                 
-                {/* カメラ起動・写真エリア */}
-                <div className="border border-paper-border bg-paper-inner p-3 rounded-xs space-y-2">
+                {/* カメラ・写真選択セクション */}
+                <div className="bg-paper-inner border border-paper-border p-3 rounded-xs space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-paper-text-main text-xs flex items-center gap-1.5">
+                    <span className="font-bold text-paper-text-main flex items-center gap-1.5">
                       <Camera className="w-4 h-4 text-paper-caramel" />
-                      表紙や写真（写真だけでも登録OK）
+                      写真（カメラ撮影・画像選択）
                     </span>
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="px-3 py-1.5 bg-paper-caramel text-white font-bold text-xs flex items-center gap-1 shadow-xs cursor-pointer hover:opacity-90"
+                      className="px-3 py-1.5 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1"
                     >
                       <Camera className="w-3.5 h-3.5" />
-                      <span>カメラ / 写真選択</span>
+                      <span>ファイル選択 / カメラ</span>
                     </button>
                     <input
                       type="file"
@@ -274,7 +275,7 @@ export default function WantBookPage() {
                       value={form.requester}
                       onChange={(e) => setForm({ ...form, requester: e.target.value })}
                       className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
-                      placeholder="希望者の名前"
+                      placeholder="例: パパ、子ども"
                     />
                   </div>
                 </div>
@@ -323,28 +324,28 @@ export default function WantBookPage() {
                   )}
                   <button
                     type="submit"
-                    className="px-6 py-2 bg-paper-caramel text-white font-bold cursor-pointer shadow-xs hover:opacity-95 flex items-center gap-1"
+                    className="px-6 py-2 bg-paper-caramel text-white font-bold cursor-pointer shadow-xs hover:opacity-95 flex items-center gap-1.5"
                   >
                     <Save className="w-4 h-4" />
-                    <span>{editingId ? "変更を保存する" : "欲しい本に登録する"}</span>
+                    <span>{editingId ? "変更を保存する" : "この内容で登録する"}</span>
                   </button>
                 </div>
               </form>
             </div>
           )}
-        </div>
+        </section>
 
-        {/* リスト件数・並び替え */}
-        <div className="bg-paper-card border border-paper-border p-2.5 flex items-center justify-between shadow-2xs">
+        {/* 📊 件数カウンターと並び替えバー */}
+        <div className="bg-paper-card border border-paper-border p-3 flex items-center justify-between shadow-2xs">
           <div className="text-xs font-bold text-paper-text-sub font-mono">
-            {books.length} 冊
+            登録数：{books.length} 冊
           </div>
           <div className="flex items-center gap-1.5">
             <ArrowUpDown className="w-3.5 h-3.5 text-paper-text-sub" />
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-paper-sub border border-paper-border text-xs text-paper-text-main px-2 py-1 focus:outline-none cursor-pointer font-bold"
+              className="bg-paper-sub border border-paper-border text-xs text-paper-text-main px-2.5 py-1 focus:outline-none cursor-pointer font-bold"
             >
               <option value="date">登録日順</option>
               <option value="status">状態順</option>
@@ -352,12 +353,12 @@ export default function WantBookPage() {
           </div>
         </div>
 
-        {/* 欲しい本一覧 */}
+        {/* 📚 欲しい本リスト一覧 */}
         {loading ? (
           <p className="text-center text-paper-text-sub py-12 text-xs">読み込み中...</p>
         ) : sortedBooks.length === 0 ? (
-          <div className="text-center py-16 bg-paper-card border border-paper-border space-y-3">
-            <p className="text-xs text-paper-text-sub">欲しい本が登録されていません</p>
+          <div className="text-center py-16 bg-paper-card border border-paper-border space-y-2">
+            <p className="text-xs text-paper-text-sub">欲しい本はまだ登録されていません</p>
           </div>
         ) : (
           <div className="space-y-2.5">
@@ -382,7 +383,7 @@ export default function WantBookPage() {
                       </div>
                     </div>
                     {book.st_status && (
-                      <span className="bg-[#EAE2B7] text-[#593922] text-[11px] font-extrabold px-2 py-0.5 border border-[#D9CFAF] shrink-0">
+                      <span className="bg-[#EAE2B7] text-[#593922] text-[11px] font-extrabold px-2.5 py-0.5 border border-[#D9CFAF] shrink-0">
                         {book.st_status}
                       </span>
                     )}
@@ -390,7 +391,7 @@ export default function WantBookPage() {
 
                   {book.requester && (
                     <div className="flex items-center justify-end pl-6 text-xs text-paper-text-sub">
-                      <div className="flex items-center gap-1 font-bold text-paper-text-main bg-paper-sub px-2 py-0.5 border border-paper-border">
+                      <div className="flex items-center gap-1 font-bold text-paper-text-main bg-paper-sub px-2.5 py-0.5 border border-paper-border">
                         <User className="w-3 h-3 text-paper-caramel" />
                         <span>{book.requester}</span>
                       </div>
@@ -400,7 +401,7 @@ export default function WantBookPage() {
                   {isExpanded && (
                     <div className="mt-3 pt-3 border-t border-paper-border bg-paper-inner p-3 space-y-3" onClick={(e) => e.stopPropagation()}>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="bg-paper-card border border-paper-border h-36 flex items-center justify-center overflow-hidden">
+                        <div className="bg-paper-card border border-paper-border h-40 flex items-center justify-center overflow-hidden">
                           {book.image_url ? (
                             <img src={book.image_url} alt={book.title} className="w-full h-full object-cover" />
                           ) : (
