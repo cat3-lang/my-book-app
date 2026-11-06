@@ -3,10 +3,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, ArrowUpDown, Camera, Upload, Save, Plus } from "lucide-react";
-import FooterNav from "@/components/FooterNav"; // 🟢 ここを追加！
+import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, Camera, Upload, Save, Plus, ScanLine } from "lucide-react";
+import FooterNav from "@/components/FooterNav";
+import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.82";
+const APP_VERSION = "v1.0.83";
 
 type WantBook = {
   id: string;
@@ -24,7 +25,6 @@ type WantBook = {
 export default function WantBookPage() {
   const [books, setBooks] = useState<WantBook[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sortBy, setSortBy] = useState<"date">("date");
   const [expandedIds, setExpandedIds] = useState<{ [key: string]: boolean }>({});
   
   const [isFormOpen, setIsFormOpen] = useState(true);
@@ -42,6 +42,10 @@ export default function WantBookPage() {
 
   const [errorMessage, setErrorMessage] = useState("");
   const [fetching, setFetching] = useState(false);
+
+  // 📸 登録ページと同じバーコードスキャン用のステート＆Ref
+  const [isScanning, setIsScanning] = useState(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -62,6 +66,9 @@ export default function WantBookPage() {
 
   useEffect(() => {
     fetchWantBooks();
+    return () => {
+      stopScanner();
+    };
   }, []);
 
   const toggleExpand = (id: string) => {
@@ -98,6 +105,7 @@ export default function WantBookPage() {
     setErrorMessage("");
   };
 
+  // 📸 画像の圧縮・プレビュー変換
   const processImageFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (uploadEvent) => {
@@ -128,20 +136,17 @@ export default function WantBookPage() {
 
   const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      processImageFile(file);
-    }
+    if (file) processImageFile(file);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      processImageFile(file);
-    }
+    if (file) processImageFile(file);
   };
 
-  const handleAutoFetch = async () => {
-    const cleanIsbn = form.isbn.trim().replace(/-/g, "");
+  // ISBN自動取得
+  const handleAutoFetch = async (targetIsbn?: string) => {
+    const cleanIsbn = (targetIsbn !== undefined ? targetIsbn : form.isbn).trim().replace(/-/g, "");
     if (!cleanIsbn) {
       setErrorMessage("ISBNを入力してください");
       return;
@@ -154,6 +159,7 @@ export default function WantBookPage() {
       if (data && data.success) {
         setForm(prev => ({
           ...prev,
+          isbn: cleanIsbn,
           title: data.title || prev.title,
           authors: data.authors || prev.authors,
           publisher: data.publisher || prev.publisher,
@@ -166,6 +172,53 @@ export default function WantBookPage() {
     } finally {
       setFetching(false);
     }
+  };
+
+  // 🔴 登録ページと同じ安全なカメラバーコードスキャン機能
+  const startScanner = async () => {
+    setIsScanning(true);
+    setErrorMessage("");
+    setTimeout(async () => {
+      try {
+        const html5QrCode = new Html5Qrcode("reader-want");
+        scannerRef.current = html5QrCode;
+
+        await html5QrCode.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 100 },
+          },
+          async (decodedText) => {
+            if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
+              await stopScanner();
+              setForm(prev => ({ ...prev, isbn: decodedText }));
+              handleAutoFetch(decodedText);
+            }
+          },
+          () => {}
+        );
+      } catch (err) {
+        console.error("Camera start error:", err);
+        setErrorMessage("カメラを起動できませんでした。権限が許可されているか確認してください。");
+        setIsScanning(false);
+      }
+    }, 100);
+  };
+
+  const stopScanner = async () => {
+    if (scannerRef.current) {
+      try {
+        if (scannerRef.current.isScanning) {
+          await scannerRef.current.stop();
+        }
+        scannerRef.current.clear();
+      } catch (err) {
+        console.error("Failed to stop scanner", err);
+      }
+      scannerRef.current = null;
+    }
+    setIsScanning(false);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -234,6 +287,28 @@ export default function WantBookPage() {
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-36 relative">
       
+      {/* 🔴 登録ページと同じカメラ読み取りモーダル */}
+      {isScanning && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xs font-bold text-paper-text-main">バーコードを枠内に合わせてください</h2>
+              <button
+                type="button"
+                onClick={stopScanner}
+                className="p-1 text-paper-text-sub hover:text-paper-text-main bg-paper-sub rounded-full cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div id="reader-want" className="w-full overflow-hidden rounded bg-black"></div>
+            <p className="text-[11px] text-paper-text-sub text-center">
+              本の裏表紙にある「978」から始まるバーコードをスキャンします
+            </p>
+          </div>
+        </div>
+      )}
+
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-3 py-2.5 md:px-6">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Link
@@ -280,6 +355,7 @@ export default function WantBookPage() {
 
               <form onSubmit={handleSave} className="space-y-3 text-xs">
                 
+                {/* ISBN & バーコードスキャンボタン */}
                 <div className="space-y-1">
                   <label className="block font-bold text-paper-text-sub">ISBN</label>
                   <div className="flex gap-2">
@@ -291,15 +367,24 @@ export default function WantBookPage() {
                     />
                     <button
                       type="button"
-                      onClick={handleAutoFetch}
+                      onClick={() => handleAutoFetch()}
                       disabled={fetching}
                       className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main hover:bg-paper-border cursor-pointer disabled:opacity-50"
                     >
                       {fetching ? "取得中..." : "自動取得"}
                     </button>
+                    <button
+                      type="button"
+                      onClick={startScanner}
+                      className="px-3 py-1.5 bg-paper-caramel text-white font-bold flex items-center gap-1 cursor-pointer hover:opacity-90 shrink-0"
+                    >
+                      <ScanLine className="w-4 h-4" />
+                      <span>スキャン</span>
+                    </button>
                   </div>
                 </div>
 
+                {/* カメラ撮影 / ファイル選択ボタン */}
                 <div className="bg-paper-inner border border-paper-border p-3 rounded-xs space-y-2">
                   <span className="block font-bold text-paper-text-main">写真</span>
                   <div className="flex flex-wrap gap-2">
