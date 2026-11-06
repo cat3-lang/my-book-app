@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, Image as ImageIcon, X, ArrowUpDown, Camera, Save, Plus } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.78";
+const APP_VERSION = "v1.0.79";
 
 type WantBook = {
   id: string;
@@ -28,7 +28,7 @@ export default function WantBookPage() {
   const [sortBy, setSortBy] = useState<"date" | "status">("date");
   const [expandedIds, setExpandedIds] = useState<{ [key: string]: boolean }>({});
   
-  // 🔽 ページ上部の登録フォームの折りたたみ開閉状態（デフォルトで開く、またはボタンでトグル）
+  // 🔽 ページ上部の登録フォームの折りたたみ開閉状態
   const [isFormOpen, setIsFormOpen] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -80,7 +80,7 @@ export default function WantBookPage() {
       memo: book.memo || "",
       image_url: book.image_url || "",
     });
-    setIsFormOpen(true); // 編集時はフォームを開く
+    setIsFormOpen(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -190,7 +190,6 @@ export default function WantBookPage() {
         
         {/* 🔽 ページ上部：折りたたみ式の埋め込み登録・編集フォーム */}
         <div className="bg-paper-card border border-paper-border shadow-xs rounded-xs overflow-hidden">
-          {/* 折りたたみヘッダー */}
           <button
             type="button"
             onClick={() => setIsFormOpen(!isFormOpen)}
@@ -203,7 +202,6 @@ export default function WantBookPage() {
             {isFormOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
 
-          {/* フォーム本体（開いている時だけ表示） */}
           {isFormOpen && (
             <div className="p-4 border-t border-paper-border space-y-3 bg-paper-card">
               <form onSubmit={handleSave} className="space-y-3 text-xs">
@@ -247,7 +245,6 @@ export default function WantBookPage() {
                   )}
                 </div>
 
-                {/* タイトル（任意：空欄でも写真だけで保存可能） */}
                 <div>
                   <label className="block font-bold text-paper-text-sub mb-1">タイトル（空欄でも写真だけで保存可能）</label>
                   <input
@@ -337,7 +334,7 @@ export default function WantBookPage() {
           )}
         </div>
 
-        {/* 📋 リスト件数・並び替え */}
+        {/* リスト件数・並び替え */}
         <div className="bg-paper-card border border-paper-border p-2.5 flex items-center justify-between shadow-2xs">
           <div className="text-xs font-bold text-paper-text-sub font-mono">
             {books.length} 冊
@@ -355,7 +352,7 @@ export default function WantBookPage() {
           </div>
         </div>
 
-        {/* 📚 欲しい本一覧 */}
+        {/* 欲しい本一覧 */}
         {loading ? (
           <p className="text-center text-paper-text-sub py-12 text-xs">読み込み中...</p>
         ) : sortedBooks.length === 0 ? (
