@@ -4,11 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Check, Camera, X, ScanLine, Save } from "lucide-react";
+import { ArrowLeft, Check, Camera, X, ScanLine, Save, ZoomIn, RefreshCw } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.86";
+const APP_VERSION = "v1.0.89";
 
 type ExistingBookInfo = {
   id: string;
@@ -43,6 +43,9 @@ export default function AddBookPage() {
   const [registeredDate, setRegisteredDate] = useState("");
   const [imageUrl, setImageUrl] = useState("");
 
+  // 画像拡大プレビュー用
+  const [isZoomOpen, setIsZoomOpen] = useState(false);
+
   useEffect(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     setRegisteredDate(todayStr);
@@ -54,6 +57,9 @@ export default function AddBookPage() {
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
+
+  // 通信キャンセル（再実行）用のコントローラーRef
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // バーコードスキャン用
   const [isScanning, setIsScanning] = useState(false);
@@ -84,6 +90,7 @@ export default function AddBookPage() {
     setErrorMessage("");
   };
 
+  // 🔄 自動取得の実行（通信中の再実行・割り込みに対応）
   const handleAutoFetchAndCheck = async (targetIsbn?: string) => {
     const cleanIsbn = (targetIsbn !== undefined ? targetIsbn : isbn).trim();
     if (!cleanIsbn) {
@@ -92,8 +99,13 @@ export default function AddBookPage() {
       return;
     }
 
-    clearForm();
-    setIsbn(cleanIsbn);
+    // すでに取得中であれば、前の通信をキャンセルして新しいリクエストを優先する
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setFetching(true);
     setErrorMessage("");
     setCheckMessage(null);
@@ -122,28 +134,36 @@ export default function AddBookPage() {
         setCheckMessage("⚠️ すでに登録されている本です（データを反映しました）");
       } else {
         setExistingBook(null);
-        setCheckMessage("✅ 未登録です（新規登録します）");
+        setCheckMessage("✅ 未登録です");
       }
 
-      // 2. 外部APIから書籍情報を取得
-      const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`);
+      // 2. 外部APIから書籍情報を取得（AbortControllerのシグナルを渡す）
+      const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`, {
+        signal: controller.signal,
+      });
       const data = await res.json();
       if (data && data.success) {
-        if (!title) setTitle(data.title || "");
-        if (!sortTitle) setSortTitle(data.title || "");
-        if (!authors) setAuthors(data.authors || "");
-        if (!publisher) setPublisher(data.publisher || "");
-        if (data.releaseDate && !releaseDate) setReleaseDate(data.releaseDate);
+        setTitle(data.title || title);
+        setSortTitle(data.title || sortTitle);
+        setAuthors(data.authors || authors);
+        setPublisher(data.publisher || publisher);
+        if (data.releaseDate) setReleaseDate(data.releaseDate);
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        console.log("前の自動取得リクエストはキャンセルされました。");
+        return; // キャンセル時はエラー表示を出さない
+      }
       console.error(err);
       setErrorMessage("書籍情報の取得に失敗しました。");
     } finally {
-      setFetching(false);
+      // 現在のコントローラーが一致している場合のみfetchingを解除
+      if (abortControllerRef.current === controller) {
+        setFetching(false);
+      }
     }
   };
 
-  // バーコードスキャン開始
   const startScanner = async () => {
     setIsScanning(true);
     setErrorMessage("");
@@ -191,7 +211,6 @@ export default function AddBookPage() {
     setIsScanning(false);
   };
 
-  // カスタムカメラ起動
   const startCustomCamera = async () => {
     setIsCustomCameraOpen(true);
     setIsPreviewMode(false);
@@ -252,6 +271,9 @@ export default function AddBookPage() {
     return () => {
       stopScanner();
       stopCustomCamera();
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, []);
 
@@ -329,9 +351,9 @@ export default function AddBookPage() {
   };
 
   return (
-    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-36 relative">
+    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-44 relative">
       
-      {/* カメラ読み取りモーダル */}
+      {/* バーコードスキャン用モーダル */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
@@ -353,7 +375,7 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* カスタムカメラ撮影モーダル */}
+      {/* カスタムカメラ撮影用モーダル */}
       {isCustomCameraOpen && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
@@ -416,6 +438,23 @@ export default function AddBookPage() {
         </div>
       )}
 
+      {/* 写真拡大モーダル */}
+      {isZoomOpen && imageUrl && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4" onClick={() => setIsZoomOpen(false)}>
+          <div className="relative max-w-lg w-full bg-paper-card p-2 rounded-lg border border-paper-border space-y-2" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center px-2">
+              <h3 className="text-xs font-bold text-paper-text-main">画像プレビュー</h3>
+              <button type="button" onClick={() => setIsZoomOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="w-full max-h-[70vh] overflow-hidden flex items-center justify-center bg-black">
+              <img src={imageUrl} alt="拡大プレビュー" className="max-w-full max-h-[70vh] object-contain" />
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-3 py-2.5 md:px-6">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
           <Link
@@ -447,19 +486,6 @@ export default function AddBookPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          
-          {/* 🟢 登録ボタンを上部に配置 */}
-          <div className="bg-paper-card border border-paper-border p-3 rounded-xs sticky top-14 z-10 shadow-sm flex items-center justify-between">
-            <span className="font-bold text-paper-text-sub">入力が完了したら</span>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-6 py-2 bg-paper-caramel text-white font-bold cursor-pointer shadow-xs hover:opacity-95 flex items-center gap-1.5 disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              <span>{existingBook ? "既存データを更新する" : "本棚に登録する"}</span>
-            </button>
-          </div>
 
           {/* ステータス選択 */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-2">
@@ -492,7 +518,7 @@ export default function AddBookPage() {
 
           {/* ISBN & スキャン */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-2">
-            <label className="block font-bold text-paper-text-sub">ISBN / バーコード</label>
+            <label className="block font-bold text-paper-text-sub">ISBN</label>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -504,10 +530,10 @@ export default function AddBookPage() {
               <button
                 type="button"
                 onClick={() => handleAutoFetchAndCheck()}
-                disabled={fetching}
-                className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main hover:bg-paper-border cursor-pointer disabled:opacity-50"
+                className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main hover:bg-paper-border cursor-pointer flex items-center gap-1 shrink-0"
               >
-                {fetching ? "取得中..." : "自動取得"}
+                <RefreshCw className={`w-3.5 h-3.5 ${fetching ? "animate-spin text-paper-caramel" : ""}`} />
+                <span>{fetching ? "再取得中..." : "自動取得"}</span>
               </button>
               <button
                 type="button"
@@ -526,9 +552,9 @@ export default function AddBookPage() {
             )}
           </div>
 
-          {/* 📸 カメラで撮影ボタン */}
+          {/* 📸 画像撮影ボタン＆プレビュー */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-2">
-            <label className="block font-bold text-paper-text-sub">表紙写真（カスタムカメラ）</label>
+            <label className="block font-bold text-paper-text-sub">画像</label>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -536,16 +562,19 @@ export default function AddBookPage() {
                 className="px-4 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
               >
                 <Camera className="w-4 h-4" />
-                <span>カメラ枠を開いて撮影する</span>
+                <span>撮影する</span>
               </button>
             </div>
 
             {imageUrl && (
-              <div className="relative w-28 h-28 border border-paper-border overflow-hidden bg-white mt-2 shadow-xs">
+              <div className="relative w-28 h-28 border border-paper-border overflow-hidden bg-white mt-2 shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
                 <img src={imageUrl} alt="撮影プレビュー" className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                  <ZoomIn className="w-5 h-5" />
+                </div>
                 <button
                   type="button"
-                  onClick={() => setImageUrl("")}
+                  onClick={(e) => { e.stopPropagation(); setImageUrl(""); }}
                   className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full cursor-pointer hover:bg-black"
                   title="写真を削除"
                 >
@@ -599,6 +628,21 @@ export default function AddBookPage() {
               />
             </div>
           </div>
+
+          {/* 🟢 下部に常時固定する「本棚に登録する」ボタン */}
+          <div className="fixed bottom-16 left-0 right-0 z-20 bg-paper-card/95 backdrop-blur-md border-t border-paper-border p-3 shadow-lg">
+            <div className="max-w-3xl mx-auto flex justify-end px-3">
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full md:w-auto px-8 py-3 bg-paper-caramel text-white font-bold cursor-pointer shadow-md hover:opacity-95 flex items-center justify-center gap-2 text-sm disabled:opacity-50 rounded"
+              >
+                <Save className="w-4 h-4" />
+                <span>{existingBook ? "既存データを更新する" : "本棚に登録する"}</span>
+              </button>
+            </div>
+          </div>
+
         </form>
       </main>
 
