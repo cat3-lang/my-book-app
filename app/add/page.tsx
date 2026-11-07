@@ -8,7 +8,7 @@ import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, Upload, X, Search
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.97";
+const APP_VERSION = "v1.1.00";
 
 type ExistingBookInfo = {
   id: string;
@@ -29,6 +29,8 @@ type ExistingBookInfo = {
   image_url?: string | null;
 };
 
+type DraftBookInfo = ExistingBookInfo & { draft_id: string };
+
 export default function AddBookPage() {
   useEffect(() => {
     const checkUser = async () => {
@@ -39,8 +41,6 @@ export default function AddBookPage() {
     };
     checkUser();
   }, []);
-  
-  const router = useRouter();
 
   const [isbn, setIsbn] = useState("");
   const [title, setTitle] = useState("");
@@ -59,8 +59,6 @@ export default function AddBookPage() {
   const [imageUrl, setImageUrl] = useState("");
 
   const [existingLocations, setExistingLocations] = useState<string[]>([]);
-
-  // ファイル選択（フォルダから選択）用のref
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // 画像拡大・トリミング用
@@ -92,6 +90,7 @@ export default function AddBookPage() {
   const [fetching, setFetching] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [existingBook, setExistingBook] = useState<ExistingBookInfo | null>(null);
+  const [matchedDraft, setMatchedDraft] = useState<DraftBookInfo | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
 
@@ -105,7 +104,7 @@ export default function AddBookPage() {
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
 
-  const clearForm = () => {
+  const clearFormExceptRatingAndLocation = () => {
     setIsbn("");
     setTitle("");
     setSubTitle("");
@@ -116,13 +115,18 @@ export default function AddBookPage() {
     setPublisher("");
     setReleaseDate("");
     setMemo("");
-    setRating(0);
-    setLocation("");
     setImageUrl("");
     setExistingBook(null);
+    setMatchedDraft(null);
     setCheckMessage(null);
     setSuccessMessage("");
     setErrorMessage("");
+  };
+
+  const clearForm = () => {
+    clearFormExceptRatingAndLocation();
+    setRating(0);
+    setLocation("");
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -131,9 +135,7 @@ export default function AddBookPage() {
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result as string;
-      if (result) {
-        setImageUrl(result);
-      }
+      if (result) setImageUrl(result);
     };
     reader.readAsDataURL(file);
   };
@@ -143,12 +145,11 @@ export default function AddBookPage() {
     if (!cleanIsbn) {
       setCheckMessage("ISBNを入力してください。");
       setExistingBook(null);
+      setMatchedDraft(null);
       return;
     }
 
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -157,6 +158,7 @@ export default function AddBookPage() {
     setCheckMessage(null);
 
     try {
+      // 1. まずSupabase DB（本棚）にあるか確認
       const { data: foundData } = await supabase
         .from("books")
         .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, release_date, rating, location, image_url")
@@ -165,6 +167,7 @@ export default function AddBookPage() {
 
       if (foundData) {
         setExistingBook(foundData);
+        setMatchedDraft(null);
         setTitle(foundData.title || "");
         setSubTitle(foundData.sub_title || "");
         setSortTitle(foundData.sort_title || foundData.title || "");
@@ -177,16 +180,44 @@ export default function AddBookPage() {
         if (foundData.authors) setAuthors(foundData.authors);
         if (foundData.publisher) setPublisher(foundData.publisher);
         if (foundData.release_date) setReleaseDate(foundData.release_date);
+        if (foundData.created_at) setRegisteredDate(foundData.created_at.split("T")[0]);
         if (foundData.image_url) setImageUrl(foundData.image_url);
 
-        setCheckMessage("⚠️ すでに登録されています。");
+        setCheckMessage("⚠️ すでに本棚に登録されています。");
         setFetching(false);
         return;
       }
 
-      const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`, {
-        signal: controller.signal,
-      });
+      // 2. 本棚になければ待機リスト（localStorage）をチェック
+      const localDraftsRaw = localStorage.getItem("book_drafts");
+      if (localDraftsRaw) {
+        const drafts = JSON.parse(localDraftsRaw);
+        const draftMatch = drafts.find((d: any) => d.isbn === cleanIsbn);
+        if (draftMatch) {
+          setMatchedDraft({ ...draftMatch, draft_id: draftMatch.id });
+          setExistingBook(null);
+          setTitle(draftMatch.title || "");
+          setSubTitle(draftMatch.sub_title || "");
+          setSortTitle(draftMatch.sort_title || draftMatch.title || "");
+          setVolume(draftMatch.volume || "");
+          setSeries(draftMatch.series || "");
+          setAuthors(draftMatch.authors || "");
+          setPublisher(draftMatch.publisher || "");
+          setReleaseDate(draftMatch.release_date || "");
+          setStatus(draftMatch.status || "持っている");
+          setMemo(draftMatch.memo || "");
+          setRating(draftMatch.rating || 0);
+          setLocation(draftMatch.location || "");
+          if (draftMatch.image_url) setImageUrl(draftMatch.image_url);
+
+          setCheckMessage("📋 待機リストに保存されている本です。");
+          setFetching(false);
+          return;
+        }
+      }
+
+      // 3. どちらにも無ければNDL APIで自動取得
+      const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`, { signal: controller.signal });
       const data = await res.json();
 
       if (data && data.success) {
@@ -200,10 +231,12 @@ export default function AddBookPage() {
         if (data.releaseDate) setReleaseDate(data.releaseDate);
         
         setExistingBook(null);
+        setMatchedDraft(null);
         setCheckMessage("✅ 国立国会図書館から情報を取得しました（未登録）");
       } else {
         setExistingBook(null);
-        setCheckMessage("✅ 未登録です（該当データなしのため手動入力してください）");
+        setMatchedDraft(null);
+        setCheckMessage("✅ 未登録です（手動入力してください）");
       }
     } catch (err: any) {
       if (err.name === "AbortError") return;
@@ -229,10 +262,10 @@ export default function AddBookPage() {
     }
   };
 
+  // 読み取りボタンを押したときの挙動（星と置き場所以外クリア）
   const startScanner = async () => {
+    clearFormExceptRatingAndLocation();
     setIsScanning(true);
-    setErrorMessage("");
-    setCheckMessage(null);
 
     setTimeout(async () => {
       try {
@@ -279,9 +312,7 @@ export default function AddBookPage() {
           audio: false,
         });
         mediaStreamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
+        if (videoRef.current) videoRef.current.srcObject = stream;
       } catch (err) {
         setErrorMessage("カメラを起動できませんでした。");
         setIsCustomCameraOpen(false);
@@ -363,7 +394,7 @@ export default function AddBookPage() {
     setIsCropOpen(false);
   };
 
-  // 🟢 待機リスト（一時保存）へ保存する処理（修正済）
+  // 待機リストへの一時保存
   const handleSaveToDrafts = () => {
     if (!title.trim() && !isbn.trim()) {
       alert("タイトルまたはISBNを入力してください。");
@@ -396,7 +427,7 @@ export default function AddBookPage() {
       drafts.unshift(draftItem);
       localStorage.setItem("book_drafts", JSON.stringify(drafts));
       
-      setSuccessMessage("待機中リストに一時保存しました！");
+      setSuccessMessage("待機リストに保存しました！");
       clearForm();
     } catch (err) {
       setErrorMessage("一時保存に失敗しました。");
@@ -412,6 +443,7 @@ export default function AddBookPage() {
     };
   }, []);
 
+  // 本のデータベース保存処理（本棚への登録）
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
@@ -446,7 +478,7 @@ export default function AddBookPage() {
         .eq("id", existingBook.id);
 
       if (error) setErrorMessage(`更新に失敗しました: ${error.message}`);
-      else setSuccessMessage("既存のデータを更新しました！（登録日は維持されます）");
+      else setSuccessMessage("既存のデータを更新しました！");
     } else {
       const { error } = await supabase.from("books").insert([
         {
@@ -472,7 +504,19 @@ export default function AddBookPage() {
         if (error.code === "23505") setErrorMessage("このISBNの本はすでに登録されています。");
         else setErrorMessage(`登録に失敗しました: ${error.message}`);
       } else {
+        // 待機リストにあったものを登録した場合、待機リストから自動削除
+        if (matchedDraft) {
+          try {
+            const raw = localStorage.getItem("book_drafts");
+            if (raw) {
+              const drafts = JSON.parse(raw);
+              const updated = drafts.filter((d: any) => d.id !== matchedDraft.draft_id);
+              localStorage.setItem("book_drafts", JSON.stringify(updated));
+            }
+          } catch (e) {}
+        }
         setSuccessMessage("本を登録しました！");
+        clearForm();
       }
     }
     setLoading(false);
@@ -506,12 +550,12 @@ export default function AddBookPage() {
         </div>
       </header>
 
-      {/* バーコードスキャン用モーダル */}
+      {/* スキャナ モーダル */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 relative shadow-xl">
             <div className="flex justify-between items-center mb-3">
-              <h2 className="text-sm font-bold text-paper-text-main">バーコードを枠内に合わせてください</h2>
+              <h2 className="text-sm font-bold text-paper-text-main">バーコードを合わせてください</h2>
               <button type="button" onClick={stopScanner} className="p-1 text-paper-text-sub bg-paper-sub border border-paper-border cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
@@ -521,7 +565,7 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* カスタムカメラ撮影用モーダル */}
+      {/* カメラ モーダル */}
       {isCustomCameraOpen && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-sm bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
@@ -560,7 +604,7 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* 写真拡大プレビューモーダル */}
+      {/* 拡大プレビュー */}
       {isZoomOpen && imageUrl && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4" onClick={() => setIsZoomOpen(false)}>
           <div className="relative max-w-lg w-full bg-paper-card p-2 rounded-lg border border-paper-border space-y-2" onClick={(e) => e.stopPropagation()}>
@@ -577,12 +621,12 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* トリミングモーダル */}
+      {/* トリミング モーダル */}
       {isCropOpen && imageUrl && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-sm bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
             <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold text-paper-text-main">位置調整・トリミング（縦長比率）</h3>
+              <h3 className="text-xs font-bold text-paper-text-main">位置調整・トリミング</h3>
               <button type="button" onClick={() => setIsCropOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
@@ -636,14 +680,13 @@ export default function AddBookPage() {
                 <span className="font-mono">{cropZoom.toFixed(2)}x</span>
               </div>
               <input type="range" min="0.5" max="3" step="0.05" value={cropZoom} onChange={(e) => setCropZoom(parseFloat(e.target.value))} className="w-full accent-paper-caramel" />
-              <p className="text-[10px] text-paper-text-sub text-center">画像をドラッグして位置を調整できます</p>
             </div>
 
             <canvas ref={cropCanvasRef} className="hidden"></canvas>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-paper-border">
               <button type="button" onClick={() => setIsCropOpen(false)} className="px-4 py-1.5 bg-paper-sub border border-paper-border font-bold text-xs rounded cursor-pointer">キャンセル</button>
-              <button type="button" onClick={applyCrop} className="px-6 py-1.5 bg-paper-caramel text-white font-bold text-xs rounded shadow-xs cursor-pointer">この大きさに切り抜く</button>
+              <button type="button" onClick={applyCrop} className="px-6 py-1.5 bg-paper-caramel text-white font-bold text-xs rounded shadow-xs cursor-pointer">適用</button>
             </div>
           </div>
         </div>
@@ -691,7 +734,8 @@ export default function AddBookPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 🟢 登録日 と お気に入り星マークを横並びに配置 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
                   <Calendar className="w-3 h-3 text-paper-caramel" /> 登録日
@@ -703,26 +747,27 @@ export default function AddBookPage() {
                   className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main font-mono"
                 />
               </div>
-              <div>
-                <div className="flex items-center gap-1 py-1.5 pt-6">
-                  {[1, 2, 3].map((star) => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() => setRating(rating === star ? 0 : star)}
-                      className="p-1 cursor-pointer"
-                    >
-                      <Star
-                        className={`w-5 h-5 ${
-                          rating >= star ? "fill-amber-400 text-amber-500" : "text-gray-400/70"
-                        }`}
-                      />
-                    </button>
-                  ))}
-                </div>
+
+              {/* 星マーク */}
+              <div className="flex items-center gap-1 pb-1">
+                {[1, 2, 3].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setRating(rating === star ? 0 : star)}
+                    className="p-1 cursor-pointer"
+                  >
+                    <Star
+                      className={`w-6 h-6 ${
+                        rating >= star ? "fill-amber-400 text-amber-500" : "text-gray-400/70"
+                      }`}
+                    />
+                  </button>
+                ))}
               </div>
             </div>
 
+            {/* ISBN ＆ 読み取り・自動取得 */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
               <div className="flex gap-2 items-center">
@@ -755,15 +800,20 @@ export default function AddBookPage() {
                 </button>
               </div>
 
+              {/* 重複・待機リスト一致メッセージ */}
               {checkMessage && (
                 <div className={`mt-2 p-2.5 text-xs border flex items-center justify-between ${
-                  existingBook ? "bg-[#FFF3CD] border-[#FFEEBA] text-[#856404]" : "bg-[#D4EDDA] border-[#C3E6CB] text-[#155724]"
+                  existingBook
+                    ? "bg-[#FFF3CD] border-[#FFEEBA] text-[#856404]"
+                    : matchedDraft
+                    ? "bg-[#E2E3E5] border-[#D6D8DB] text-[#383D41]"
+                    : "bg-[#D4EDDA] border-[#C3E6CB] text-[#155724]"
                 }`}>
                   <div>
                     <span>{checkMessage}</span>
                     {existingBook && (
-                      <p className="mt-0.5 text-[11px]">
-                        （登録日: {new Date(existingBook.created_at).toLocaleDateString()} / ステータス: {existingBook.status}）
+                      <p className="mt-0.5 text-[11px] font-mono">
+                        登録日: {new Date(existingBook.created_at).toLocaleDateString()} / ステータス: {existingBook.status}
                       </p>
                     )}
                   </div>
@@ -774,33 +824,33 @@ export default function AddBookPage() {
                       className="text-[11px] bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 font-bold transition cursor-pointer flex items-center gap-1"
                     >
                       <Trash2 className="w-3 h-3" />
-                      <span>データを削除する</span>
+                      <span>削除</span>
                     </button>
                   )}
                 </div>
               )}
             </div>
 
+            {/* 🟢 画像（見出し文字「画像」を削除・プレビュー比率を本サイズ 400:566 に修正） */}
             <div className="pt-2 border-t border-paper-border">
-              <label className="block text-xs font-bold text-paper-text-sub mb-1">画像</label>
               <div className="flex items-start gap-4">
                 {imageUrl ? (
-                  <div className="relative w-24 h-[34px] aspect-[400/566] border border-paper-border overflow-hidden bg-white shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
-                    <img src={imageUrl} alt="撮影プレビュー" className="w-full h-full object-cover" />
+                  <div className="relative w-16 aspect-[400/566] border border-paper-border overflow-hidden bg-white shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
+                    <img src={imageUrl} alt="プレビュー" className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                      <ZoomIn className="w-5 h-5" />
+                      <ZoomIn className="w-4 h-4" />
                     </div>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); setImageUrl(""); }}
-                      className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full cursor-pointer hover:bg-black"
-                      title="写真を削除"
+                      className="absolute top-1 right-1 bg-black/70 text-white p-0.5 rounded-full cursor-pointer"
+                      title="削除"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-3 h-3" />
                     </button>
                   </div>
                 ) : (
-                  <div className="w-24 aspect-[400/566] border border-dashed border-paper-border flex items-center justify-center text-paper-text-sub text-[10px] bg-paper-inner">
+                  <div className="w-16 aspect-[400/566] border border-dashed border-paper-border flex items-center justify-center text-paper-text-sub text-[9px] bg-paper-inner">
                     写真なし
                   </div>
                 )}
@@ -847,6 +897,7 @@ export default function AddBookPage() {
               </div>
             </div>
 
+            {/* タイトル ＆ フリガナ */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-paper-border">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">
@@ -874,6 +925,7 @@ export default function AddBookPage() {
               </div>
             </div>
 
+            {/* サブタイトル ＆ 巻数 */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-3">
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">サブタイトル</label>
@@ -895,6 +947,7 @@ export default function AddBookPage() {
               </div>
             </div>
 
+            {/* 著者名 ＆ 発行所 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">著者名</label>
@@ -916,6 +969,7 @@ export default function AddBookPage() {
               </div>
             </div>
 
+            {/* 発行月 ＆ シリーズ名 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
@@ -941,6 +995,7 @@ export default function AddBookPage() {
               </div>
             </div>
 
+            {/* 置き場所 */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
                 <MapPin className="w-3 h-3 text-paper-caramel" /> 置き場所
@@ -960,6 +1015,7 @@ export default function AddBookPage() {
               </datalist>
             </div>
 
+            {/* メモ */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">メモ</label>
               <textarea
@@ -971,6 +1027,7 @@ export default function AddBookPage() {
             </div>
           </div>
 
+          {/* 🟢 下部固定ボタンエリア（文字を「本を登録」に修正） */}
           <div className="fixed bottom-16 left-0 right-0 z-20 bg-paper-card/95 backdrop-blur-md border-t border-paper-border p-3 shadow-lg">
             <div className="max-w-3xl mx-auto flex items-center justify-between px-3 gap-2">
               <button
@@ -988,7 +1045,7 @@ export default function AddBookPage() {
                 className="flex-1 py-3 bg-paper-caramel text-white font-bold cursor-pointer shadow-md hover:opacity-95 flex items-center justify-center gap-2 text-sm disabled:opacity-50 rounded"
               >
                 <Save className="w-4 h-4" />
-                <span>{existingBook ? "既存データを更新する" : "今すぐ本を登録"}</span>
+                <span>{existingBook ? "既存データを更新する" : "本を登録"}</span>
               </button>
             </div>
           </div>

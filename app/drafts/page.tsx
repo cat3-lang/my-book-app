@@ -3,10 +3,10 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Trash2, Save, Search, Loader2, Check, Star, MapPin, ZoomIn, X, Edit3 } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Search, Loader2, Check, Star, ZoomIn, X, Edit3 } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.98";
+const APP_VERSION = "v1.0.99";
 
 type DraftBook = {
   id: string;
@@ -33,6 +33,7 @@ type DraftBook = {
 export default function DraftsPage() {
   const [authChecking, setAuthChecking] = useState(true);
   const [drafts, setDrafts] = useState<DraftBook[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [existingLocations, setExistingLocations] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<DraftBook>>({});
@@ -91,7 +92,7 @@ export default function DraftsPage() {
     );
   }
 
-  // 1冊ずつ自動取得する処理
+  // 個別の全自動取得
   const handleAutoFetchSingle = async (id: string, isbnStr: string | null) => {
     if (!isbnStr) {
       alert("ISBNが入力されていません。");
@@ -118,34 +119,34 @@ export default function DraftsPage() {
               publisher: data.publisher || d.publisher,
               release_date: data.releaseDate || d.release_date,
               fetching: false,
-              fetchMessage: "✅ 情報を取得しました！",
+              fetchMessage: "✅ 取得完了",
             };
           }
           return d;
         }));
       } else {
-        setDrafts(prev => prev.map(d => d.id === id ? { ...d, fetching: false, fetchMessage: "❌ 該当データがありませんでした" } : d));
+        setDrafts(prev => prev.map(d => d.id === id ? { ...d, fetching: false, fetchMessage: "❌ データなし" } : d));
       }
     } catch (err) {
-      setDrafts(prev => prev.map(d => d.id === id ? { ...d, fetching: false, fetchMessage: "❌ 取得エラー" } : d));
+      setDrafts(prev => prev.map(d => d.id === id ? { ...d, fetching: false, fetchMessage: "❌ エラー" } : d));
     }
   };
 
-  // すべての待機リストのISBNを一括で自動取得する処理
-  const handleFetchAll = async () => {
-    for (let i = 0; i < drafts.length; i++) {
-      const d = drafts[i];
-      if (d.isbn) {
-        await handleAutoFetchSingle(d.id, d.isbn);
-      }
+  // チェックボックス全選択/解除
+  const toggleSelectAll = () => {
+    if (selectedIds.length === drafts.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(drafts.map(d => d.id));
     }
   };
 
-  // 本棚（Supabase）へ本番登録する処理
-  const handleRegisterToMain = async (draft: DraftBook) => {
-    setErrorMessage("");
-    setSuccessMessage("");
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]);
+  };
 
+  // 1冊を本棚（Supabase）へ登録（ステータスは「持っている」に変更）
+  const registerDraftToMain = async (draft: DraftBook) => {
     const { error } = await supabase.from("books").insert([
       {
         isbn: draft.isbn || null,
@@ -157,7 +158,7 @@ export default function DraftsPage() {
         authors: draft.authors || null,
         publisher: draft.publisher || null,
         release_date: draft.release_date || null,
-        status: draft.status,
+        status: "持っている", // 本棚に入れるため「持っている」へ強制変更
         created_at: draft.registered_date ? new Date(draft.registered_date).toISOString() : new Date().toISOString(),
         memo: draft.memo || null,
         rating: draft.rating || 0,
@@ -165,35 +166,56 @@ export default function DraftsPage() {
         image_url: draft.image_url || null,
       },
     ]);
+    return { error, title: draft.title };
+  };
 
+  // 個別登録
+  const handleRegisterSingle = async (draft: DraftBook) => {
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    const { error } = await registerDraftToMain(draft);
     if (error) {
-      if (error.code === "23505") {
-        alert(`「${draft.title}」はすでに本棚に登録されています（ISBN重複）。`);
-      } else {
-        alert(`登録失敗: ${error.message}`);
-      }
+      alert(`登録失敗: ${error.message}`);
     } else {
-      // 登録成功したら待機リストから削除
       const updated = drafts.filter(d => d.id !== draft.id);
       saveDraftsToStorage(updated);
+      setSelectedIds(prev => prev.filter(id => id !== draft.id));
       setSuccessMessage(`「${draft.title}」を本棚に登録しました！`);
     }
   };
 
-  // すべての待機リストの本を本棚へ一括登録
-  const handleRegisterAll = async () => {
-    if (drafts.length === 0) return;
-    if (!window.confirm(`待機リストにある ${drafts.length}冊 をすべて本棚に登録しますか？`)) return;
-
-    for (const draft of [...drafts]) {
-      await handleRegisterToMain(draft);
+  // チェックした本を一括登録
+  const handleRegisterSelected = async () => {
+    if (selectedIds.length === 0) {
+      alert("登録する本にチェックを入れてください。");
+      return;
     }
+    if (!window.confirm(`選択した ${selectedIds.length}冊 を本棚に登録しますか？`)) return;
+
+    setErrorMessage("");
+    setSuccessMessage("");
+    const targetDrafts = drafts.filter(d => selectedIds.includes(d.id));
+    let successCount = 0;
+
+    for (const draft of targetDrafts) {
+      const { error } = await registerDraftToMain(draft);
+      if (!error) {
+        successCount++;
+      }
+    }
+
+    const updated = drafts.filter(d => !selectedIds.includes(d.id));
+    saveDraftsToStorage(updated);
+    setSelectedIds([]);
+    setSuccessMessage(`${successCount}冊 を本棚に登録しました！`);
   };
 
   const handleDeleteDraft = (id: string) => {
     if (!window.confirm("この待機データを削除しますか？")) return;
     const updated = drafts.filter(d => d.id !== id);
     saveDraftsToStorage(updated);
+    setSelectedIds(prev => prev.filter(i => i !== id));
   };
 
   const startEditing = (draft: DraftBook) => {
@@ -205,20 +227,6 @@ export default function DraftsPage() {
     const updated = drafts.map(d => d.id === id ? { ...d, ...editForm } as DraftBook : d);
     saveDraftsToStorage(updated);
     setEditingId(null);
-  };
-
-  const handleImageChangeForDraft = (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const result = event.target?.result as string;
-      if (result) {
-        const updated = drafts.map(d => d.id === id ? { ...d, image_url: result } : d);
-        saveDraftsToStorage(updated);
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   return (
@@ -244,12 +252,12 @@ export default function DraftsPage() {
         </div>
       </header>
 
-      {/* 🖼️ 画像拡大ポップアッププレビュー */}
+      {/* 🖼️ 画像プレビューモーダル */}
       {previewImageUrl && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4" onClick={() => setPreviewImageUrl(null)}>
           <div className="relative max-w-lg w-full bg-paper-card p-2 rounded-lg border border-paper-border space-y-2" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center px-2">
-              <h3 className="text-xs font-bold text-paper-text-main">画像プレビュー</h3>
+              <h3 className="text-xs font-bold text-paper-text-main">表紙プレビュー</h3>
               <button type="button" onClick={() => setPreviewImageUrl(null)} className="p-1 text-paper-text-sub hover:text-paper-text-main cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
@@ -269,31 +277,27 @@ export default function DraftsPage() {
           </div>
         )}
 
-        {errorMessage && (
-          <div className="p-3 bg-[#F8D7DA] border border-[#F5C6CB] text-[#721C24] text-xs flex items-center gap-2">
-            <span>{errorMessage}</span>
-          </div>
-        )}
-
-        {/* 一括操作ボタンエリア */}
+        {/* 選択一括登録ヘッダー */}
         {drafts.length > 0 && (
-          <div className="bg-paper-card border border-paper-border p-3 flex flex-wrap gap-2 items-center justify-between shadow-xs">
-            <button
-              type="button"
-              onClick={handleFetchAll}
-              className="px-4 py-2 bg-paper-sub border border-paper-border text-paper-text-main text-xs font-bold hover:bg-paper-border transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
-            >
-              <Search className="w-3.5 h-3.5 text-paper-caramel" />
-              <span>すべてのISBNを自動取得</span>
-            </button>
+          <div className="bg-paper-card border border-paper-border p-3 flex items-center justify-between shadow-xs">
+            <label className="flex items-center gap-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selectedIds.length === drafts.length && drafts.length > 0}
+                onChange={toggleSelectAll}
+                className="w-4 h-4 accent-paper-caramel cursor-pointer"
+              />
+              <span>すべて選択 ({selectedIds.length}/{drafts.length})</span>
+            </label>
 
             <button
               type="button"
-              onClick={handleRegisterAll}
-              className="px-6 py-2 bg-paper-caramel text-white text-xs font-bold hover:opacity-95 transition cursor-pointer flex items-center gap-1.5 shadow-md"
+              onClick={handleRegisterSelected}
+              disabled={selectedIds.length === 0}
+              className="px-5 py-2 bg-paper-caramel text-white text-xs font-bold hover:opacity-95 transition cursor-pointer flex items-center gap-1.5 shadow-md disabled:opacity-40"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>すべて本棚に登録する ({drafts.length}冊)</span>
+              <span>選択した本を登録</span>
             </button>
           </div>
         )}
@@ -305,19 +309,19 @@ export default function DraftsPage() {
               href="/add"
               className="inline-block text-xs font-bold text-white bg-paper-caramel px-4 py-2 hover:opacity-90 transition"
             >
-              本を登録（一時保存）する
+              本を登録する
             </Link>
           </div>
         ) : (
           <div className="space-y-3">
             {drafts.map((draft) => {
               const isEditing = editingId === draft.id;
-              const fileInputRefId = `file_input_${draft.id}`;
+              const isChecked = selectedIds.includes(draft.id);
 
               return (
                 <div key={draft.id} className="bg-paper-card border border-paper-border p-3.5 space-y-3 shadow-xs text-xs">
                   {isEditing ? (
-                    // 編集フォーム
+                    /* 編集モード（星・置き場所・シリーズを追加） */
                     <div className="space-y-2.5">
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -351,12 +355,12 @@ export default function DraftsPage() {
                           />
                         </div>
                         <div>
-                          <label className="text-[10px] text-paper-text-sub block font-bold">ISBN</label>
+                          <label className="text-[10px] text-paper-text-sub block font-bold">シリーズ名</label>
                           <input
                             type="text"
-                            value={editForm.isbn || ""}
-                            onChange={(e) => setEditForm({ ...editForm, isbn: e.target.value })}
-                            className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full font-mono"
+                            value={editForm.series || ""}
+                            onChange={(e) => setEditForm({ ...editForm, series: e.target.value })}
+                            className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full"
                           />
                         </div>
                       </div>
@@ -382,6 +386,43 @@ export default function DraftsPage() {
                         </div>
                       </div>
 
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-paper-text-sub block font-bold">置き場所</label>
+                          <input
+                            type="text"
+                            list="draft-loc-list"
+                            value={editForm.location || ""}
+                            onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                            className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full"
+                          />
+                          <datalist id="draft-loc-list">
+                            {existingLocations.map((loc) => (
+                              <option key={loc} value={loc} />
+                            ))}
+                          </datalist>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-paper-text-sub block font-bold mb-0.5">お気に入り度</label>
+                          <div className="flex items-center gap-1 py-0.5">
+                            {[1, 2, 3].map((star) => (
+                              <button
+                                key={star}
+                                type="button"
+                                onClick={() => setEditForm({ ...editForm, rating: editForm.rating === star ? 0 : star })}
+                                className="cursor-pointer"
+                              >
+                                <Star
+                                  className={`w-4 h-4 ${
+                                    (editForm.rating || 0) >= star ? "fill-amber-400 text-amber-500" : "text-gray-400/70"
+                                  }`}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="flex justify-end gap-2 pt-1 border-t border-paper-border">
                         <button
                           type="button"
@@ -395,27 +436,37 @@ export default function DraftsPage() {
                           onClick={() => saveEdit(draft.id)}
                           className="px-3 py-1 bg-paper-caramel text-white font-bold cursor-pointer"
                         >
-                          完了
+                          保存
                         </button>
                       </div>
                     </div>
                   ) : (
-                    // 通常表示
+                    /* 通常カード表示 */
                     <>
-                      <div className="flex items-start justify-between gap-3">
-                        {/* 表紙画像サムネイル */}
+                      <div className="flex items-start gap-3">
+                        {/* チェックボックス */}
+                        <div className="pt-2">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSelect(draft.id)}
+                            className="w-4 h-4 accent-paper-caramel cursor-pointer"
+                          />
+                        </div>
+
+                        {/* 本の縦長プレビューサムネイル（400:566） */}
                         <div 
-                          className="w-16 h-[54px] aspect-[400/566] border border-paper-border bg-paper-inner shrink-0 overflow-hidden flex items-center justify-center cursor-pointer relative group"
+                          className="w-12 aspect-[400/566] border border-paper-border bg-paper-inner shrink-0 overflow-hidden flex items-center justify-center cursor-pointer relative group"
                           onClick={() => draft.image_url && setPreviewImageUrl(draft.image_url)}
                         >
                           {draft.image_url ? (
                             <img src={draft.image_url} alt="表紙" className="w-full h-full object-cover" />
                           ) : (
-                            <span className="text-[9px] text-paper-text-sub text-center px-1">画像なし</span>
+                            <span className="text-[8px] text-paper-text-sub text-center px-0.5">画像なし</span>
                           )}
                           {draft.image_url && (
                             <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                              <ZoomIn className="w-4 h-4" />
+                              <ZoomIn className="w-3.5 h-3.5" />
                             </div>
                           )}
                         </div>
@@ -423,9 +474,6 @@ export default function DraftsPage() {
                         {/* 書籍情報 */}
                         <div className="flex-1 min-w-0 space-y-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="bg-paper-sub text-paper-text-main px-1.5 py-0.5 font-bold border border-paper-border text-[11px]">
-                              {draft.status}
-                            </span>
                             {draft.volume && (
                               <span className="bg-paper-caramel/10 text-paper-caramel px-1.5 py-0.5 font-bold text-[11px]">
                                 {draft.volume}巻
@@ -434,6 +482,19 @@ export default function DraftsPage() {
                             <span className="text-[11px] text-paper-text-sub font-mono">
                               ISBN: {draft.isbn || "なし"}
                             </span>
+                            {/* 星表示 */}
+                            {(draft.rating || 0) > 0 && (
+                              <div className="flex items-center">
+                                {[1, 2, 3].map((star) => (
+                                  <Star
+                                    key={star}
+                                    className={`w-3 h-3 ${
+                                      (draft.rating || 0) >= star ? "fill-amber-400 text-amber-500" : "text-gray-300"
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            )}
                           </div>
 
                           <h2 className="font-bold text-sm text-paper-text-main truncate">
@@ -445,28 +506,24 @@ export default function DraftsPage() {
                           </p>
                         </div>
 
-                        {/* 個別削除ボタン */}
                         <button
                           type="button"
                           onClick={() => handleDeleteDraft(draft.id)}
                           className="text-paper-text-sub hover:text-red-600 p-1 cursor-pointer"
-                          title="リストから削除"
+                          title="削除"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
 
-                      {/* 自動取得メッセージ */}
                       {draft.fetchMessage && (
                         <div className="text-[11px] font-bold text-paper-caramel px-1">
                           {draft.fetchMessage}
                         </div>
                       )}
 
-                      {/* アクションボタン群（自動取得・画像選択・編集・本棚登録） */}
                       <div className="flex items-center justify-between pt-2 border-t border-paper-border flex-wrap gap-2">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {/* 自動取得ボタン */}
+                        <div className="flex items-center gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleAutoFetchSingle(draft.id, draft.isbn)}
@@ -477,23 +534,6 @@ export default function DraftsPage() {
                             <span>自動取得</span>
                           </button>
 
-                          {/* 画像ファイル選択ボタン */}
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById(fileInputRefId)?.click()}
-                            className="px-2.5 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-xs font-bold cursor-pointer"
-                          >
-                            画像選択
-                          </button>
-                          <input
-                            type="file"
-                            id={fileInputRefId}
-                            accept="image/*"
-                            onChange={(e) => handleImageChangeForDraft(draft.id, e)}
-                            className="hidden"
-                          />
-
-                          {/* 編集ボタン */}
                           <button
                             type="button"
                             onClick={() => startEditing(draft)}
@@ -504,14 +544,13 @@ export default function DraftsPage() {
                           </button>
                         </div>
 
-                        {/* 本棚へ登録ボタン */}
                         <button
                           type="button"
-                          onClick={() => handleRegisterToMain(draft)}
+                          onClick={() => handleRegisterSingle(draft)}
                           className="px-4 py-1.5 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-95 cursor-pointer flex items-center gap-1"
                         >
                           <Save className="w-3.5 h-3.5" />
-                          <span>本棚に登録</span>
+                          <span>登録</span>
                         </button>
                       </div>
                     </>
