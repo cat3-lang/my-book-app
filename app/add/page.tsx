@@ -4,11 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Check, Camera, X, ScanLine, Save, ZoomIn, RefreshCw, Crop } from "lucide-react";
+import { ArrowLeft, Check, Camera, X, ScanLine, Save, ZoomIn, RefreshCw, Crop, Trash2 } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.90";
+const APP_VERSION = "v1.0.91";
 
 type ExistingBookInfo = {
   id: string;
@@ -23,7 +23,7 @@ type ExistingBookInfo = {
   series?: string | null;
   authors?: string | null;
   publisher?: string | null;
-  release_date?: string | null;
+  location?: string | null;
 };
 
 export default function AddBookPage() {
@@ -37,7 +37,7 @@ export default function AddBookPage() {
   const [series, setSeries] = useState("");
   const [authors, setAuthors] = useState("");
   const [publisher, setPublisher] = useState("");
-  const [releaseDate, setReleaseDate] = useState("");
+  const [location, setLocation] = useState("");
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   const [memo, setMemo] = useState("");
   const [registeredDate, setRegisteredDate] = useState("");
@@ -85,7 +85,7 @@ export default function AddBookPage() {
     setSeries("");
     setAuthors("");
     setPublisher("");
-    setReleaseDate("");
+    setLocation("");
     setMemo("");
     setImageUrl("");
     setExistingBook(null);
@@ -115,7 +115,7 @@ export default function AddBookPage() {
     try {
       const { data: foundData } = await supabase
         .from("books")
-        .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, release_date")
+        .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, location")
         .eq("isbn", cleanIsbn)
         .single();
 
@@ -130,9 +130,9 @@ export default function AddBookPage() {
         if (foundData.series) setSeries(foundData.series);
         if (foundData.authors) setAuthors(foundData.authors);
         if (foundData.publisher) setPublisher(foundData.publisher);
-        if (foundData.release_date) setReleaseDate(foundData.release_date);
+        if (foundData.location) setLocation(foundData.location);
 
-        setCheckMessage("⚠️ すでに登録されている本です（データを反映しました）");
+        setCheckMessage("⚠️ すでに登録されている本です");
       } else {
         setExistingBook(null);
         setCheckMessage("✅ 未登録です");
@@ -147,7 +147,6 @@ export default function AddBookPage() {
         setSortTitle(data.title || sortTitle);
         setAuthors(data.authors || authors);
         setPublisher(data.publisher || publisher);
-        if (data.releaseDate) setReleaseDate(data.releaseDate);
       }
     } catch (err: any) {
       if (err.name === "AbortError") return;
@@ -260,7 +259,6 @@ export default function AddBookPage() {
     startCustomCamera();
   };
 
-  // トリミング適用
   const applyCrop = () => {
     const img = rawImageRef.current;
     const canvas = cropCanvasRef.current;
@@ -270,7 +268,7 @@ export default function AddBookPage() {
     if (!ctx) return;
 
     canvas.width = 400;
-    canvas.height = 533; // 3:4比率など
+    canvas.height = 533;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
@@ -282,6 +280,22 @@ export default function AddBookPage() {
     const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
     setImageUrl(croppedDataUrl);
     setIsCropOpen(false);
+  };
+
+  // 既存データの削除機能
+  const handleDeleteExisting = async () => {
+    if (!existingBook) return;
+    if (!window.confirm(`「${existingBook.title}」を削除しますか？`)) return;
+
+    const { error } = await supabase.from("books").delete().eq("id", existingBook.id);
+    if (error) {
+      setErrorMessage(`削除に失敗しました: ${error.message}`);
+    } else {
+      setSuccessMessage("既存のデータを削除しました。");
+      setExistingBook(null);
+      setCheckMessage("✅ 未登録状態になりました");
+      setTimeout(() => setSuccessMessage(""), 2000);
+    }
   };
 
   useEffect(() => {
@@ -306,15 +320,18 @@ export default function AddBookPage() {
     const cleanIsbn = isbn.trim();
 
     if (existingBook) {
+      // ⚠️ 更新時は created_at を含めないため、元の登録日のまま維持されます
       const { error } = await supabase
         .from("books")
         .update({
           title: title.trim(),
+          sub_title: subTitle.trim() || null,
           sort_title: sortTitle.trim() || title.trim(),
           volume: volume.trim() || null,
           series: series.trim() || null,
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
+          location: location.trim() || null,
           status: status,
           memo: memo.trim() || null,
           image_url: imageUrl || null,
@@ -326,7 +343,7 @@ export default function AddBookPage() {
         setErrorMessage(`更新に失敗しました: ${error.message}`);
         setLoading(false);
       } else {
-        setSuccessMessage("既存のデータを更新しました！");
+        setSuccessMessage("既存のデータを更新しました！（登録日は維持されます）");
         clearForm();
         setTimeout(() => {
           router.push(status === "持っている" ? "/" : "/want");
@@ -336,11 +353,13 @@ export default function AddBookPage() {
       const { error } = await supabase.from("books").insert([
         {
           title: title.trim(),
+          sub_title: subTitle.trim() || null,
           sort_title: sortTitle.trim() || title.trim(),
           volume: volume.trim() || null,
           series: series.trim() || null,
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
+          location: location.trim() || null,
           isbn: cleanIsbn || null,
           status: status,
           memo: memo.trim() || null,
@@ -483,7 +502,6 @@ export default function AddBookPage() {
               </button>
             </div>
 
-            {/* 非表示の元画像保持用 */}
             <img
               ref={rawImageRef}
               src={imageUrl}
@@ -526,11 +544,9 @@ export default function AddBookPage() {
                   }}
                 />
               </div>
-              {/* 切り取り枠のガイド */}
               <div className="absolute inset-8 border-2 border-dashed border-white/70 pointer-events-none rounded"></div>
             </div>
 
-            {/* スライダー操作 */}
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-paper-text-sub">拡大・縮小</span>
@@ -602,7 +618,7 @@ export default function AddBookPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
 
-          {/* ステータス選択（前回の四角型カードデザイン） */}
+          {/* ステータス選択 */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-2">
             <label className="block font-bold text-paper-text-sub">ステータス</label>
             <div className="grid grid-cols-2 gap-2">
@@ -631,7 +647,7 @@ export default function AddBookPage() {
             </div>
           </div>
 
-          {/* ISBN & スキャン（右側にスキャン、下に自動取得ボタン） */}
+          {/* ISBN & スキャン */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-2">
             <label className="block font-bold text-paper-text-sub">ISBN</label>
             <div className="flex gap-2">
@@ -652,7 +668,7 @@ export default function AddBookPage() {
               </button>
             </div>
 
-            <div>
+            <div className="flex items-center justify-between">
               <button
                 type="button"
                 onClick={() => handleAutoFetchAndCheck()}
@@ -661,6 +677,17 @@ export default function AddBookPage() {
                 <RefreshCw className={`w-3.5 h-3.5 ${fetching ? "animate-spin text-paper-caramel" : ""}`} />
                 <span>{fetching ? "再取得中..." : "自動取得"}</span>
               </button>
+
+              {existingBook && (
+                <button
+                  type="button"
+                  onClick={handleDeleteExisting}
+                  className="px-3 py-1.5 bg-paper-danger text-white font-bold flex items-center gap-1 rounded hover:opacity-90 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>既存データを削除する</span>
+                </button>
+              )}
             </div>
 
             {checkMessage && (
@@ -719,10 +746,10 @@ export default function AddBookPage() {
             </div>
           </div>
 
-          {/* 各種入力欄（タイトル、読み、著者など前回と同じ構成） */}
+          {/* 各種入力欄（タイトル、読み、サブタイトル、巻数、著者、発行所、シリーズ名、置き場所、メモ） */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-3">
             <div>
-              <label className="block font-bold text-paper-text-sub mb-1">タイトル <span className="text-red-500">*</span></label>
+              <label className="block font-bold text-paper-text-main mb-1">タイトル <span className="text-red-500">*</span></label>
               <input
                 type="text"
                 value={title}
@@ -732,14 +759,47 @@ export default function AddBookPage() {
               />
             </div>
 
-            <div>
-              <label className="block font-bold text-paper-text-sub mb-1">読み</label>
-              <input
-                type="text"
-                value={sortTitle}
-                onChange={(e) => setSortTitle(e.target.value)}
-                className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block font-bold text-paper-text-sub mb-1">読み（フリガナ）</label>
+                <input
+                  type="text"
+                  value={sortTitle}
+                  onChange={(e) => setSortTitle(e.target.value)}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-paper-text-sub mb-1">サブタイトル</label>
+                <input
+                  type="text"
+                  value={subTitle}
+                  onChange={(e) => setSubTitle(e.target.value)}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block font-bold text-paper-text-sub mb-1">巻数</label>
+                <input
+                  type="text"
+                  value={volume}
+                  onChange={(e) => setVolume(e.target.value)}
+                  placeholder="例: 1"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-paper-text-sub mb-1">シリーズ名</label>
+                <input
+                  type="text"
+                  value={series}
+                  onChange={(e) => setSeries(e.target.value)}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -761,6 +821,17 @@ export default function AddBookPage() {
                   className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block font-bold text-paper-text-sub mb-1">置き場所</label>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="例: リビング本棚"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+              />
             </div>
 
             <div>
