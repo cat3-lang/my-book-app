@@ -4,11 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Check, Camera, X, ScanLine, Save, ZoomIn, RefreshCw, Crop, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, Search, Loader2, AlertCircle, Trash2, Star, MapPin, ZoomIn, Crop, Save } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.91";
+const APP_VERSION = "v1.0.92";
 
 type ExistingBookInfo = {
   id: string;
@@ -23,10 +23,23 @@ type ExistingBookInfo = {
   series?: string | null;
   authors?: string | null;
   publisher?: string | null;
+  release_date?: string | null;
+  rating?: number | null;
   location?: string | null;
+  image_url?: string | null;
 };
 
 export default function AddBookPage() {
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        window.location.href = "/login";
+      }
+    };
+    checkUser();
+  }, []);
+  
   const router = useRouter();
 
   const [isbn, setIsbn] = useState("");
@@ -37,16 +50,19 @@ export default function AddBookPage() {
   const [series, setSeries] = useState("");
   const [authors, setAuthors] = useState("");
   const [publisher, setPublisher] = useState("");
-  const [location, setLocation] = useState("");
+  const [releaseDate, setReleaseDate] = useState("");
   const [status, setStatus] = useState<"持っている" | "欲しい">("持っている");
   const [memo, setMemo] = useState("");
   const [registeredDate, setRegisteredDate] = useState("");
+  const [rating, setRating] = useState<number>(0);
+  const [location, setLocation] = useState<string>("");
   const [imageUrl, setImageUrl] = useState("");
 
-  // 画像拡大プレビュー用
-  const [isZoomOpen, setIsZoomOpen] = useState(false);
+  // 既存の本のデータから登録済みロケーションリストを自動取得
+  const [existingLocations, setExistingLocations] = useState<string[]>([]);
 
-  // トリミング編集用モーダル
+  // 画像拡大・トリミング用
+  const [isZoomOpen, setIsZoomOpen] = useState(false);
   const [isCropOpen, setIsCropOpen] = useState(false);
   const [cropZoom, setCropZoom] = useState(1);
   const [cropOffsetX, setCropOffsetX] = useState(0);
@@ -57,6 +73,15 @@ export default function AddBookPage() {
   useEffect(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     setRegisteredDate(todayStr);
+
+    const fetchLocations = async () => {
+      const { data } = await supabase.from("books").select("location");
+      if (data) {
+        const uniqueLocs = Array.from(new Set(data.map(b => b.location).filter(Boolean))) as string[];
+        setExistingLocations(uniqueLocs);
+      }
+    };
+    fetchLocations();
   }, []);
 
   const [loading, setLoading] = useState(false);
@@ -85,8 +110,10 @@ export default function AddBookPage() {
     setSeries("");
     setAuthors("");
     setPublisher("");
-    setLocation("");
+    setReleaseDate("");
     setMemo("");
+    setRating(0);
+    setLocation("");
     setImageUrl("");
     setExistingBook(null);
     setCheckMessage(null);
@@ -115,7 +142,7 @@ export default function AddBookPage() {
     try {
       const { data: foundData } = await supabase
         .from("books")
-        .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, location")
+        .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, release_date, rating, location, image_url")
         .eq("isbn", cleanIsbn)
         .single();
 
@@ -126,32 +153,44 @@ export default function AddBookPage() {
         setSortTitle(foundData.sort_title || foundData.title || "");
         setStatus(foundData.status || "持っている");
         setMemo(foundData.memo || "");
+        setRating(foundData.rating || 0);
+        setLocation(foundData.location || "");
         if (foundData.volume) setVolume(foundData.volume);
         if (foundData.series) setSeries(foundData.series);
         if (foundData.authors) setAuthors(foundData.authors);
         if (foundData.publisher) setPublisher(foundData.publisher);
-        if (foundData.location) setLocation(foundData.location);
+        if (foundData.release_date) setReleaseDate(foundData.release_date);
+        if (foundData.image_url) setImageUrl(foundData.image_url);
 
-        setCheckMessage("⚠️ すでに登録されている本です");
-      } else {
-        setExistingBook(null);
-        setCheckMessage("✅ 未登録です");
+        setCheckMessage("⚠️ すでに登録されています。");
+        setFetching(false);
+        return;
       }
 
       const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`, {
         signal: controller.signal,
       });
       const data = await res.json();
+
       if (data && data.success) {
-        setTitle(data.title || title);
-        setSortTitle(data.title || sortTitle);
-        setAuthors(data.authors || authors);
-        setPublisher(data.publisher || publisher);
+        if (data.title) setTitle(data.title);
+        if (data.subTitle) setSubTitle(data.subTitle);
+        if (data.sortTitle) setSortTitle(data.sortTitle);
+        if (data.volume) setVolume(data.volume);
+        if (data.series) setSeries(data.series);
+        if (data.authors) setAuthors(data.authors);
+        if (data.publisher) setPublisher(data.publisher);
+        if (data.releaseDate) setReleaseDate(data.releaseDate);
+        
+        setExistingBook(null);
+        setCheckMessage("✅ 国立国会図書館から情報を取得しました（未登録）");
+      } else {
+        setExistingBook(null);
+        setCheckMessage("✅ 未登録です（該当データなしのため手動入力してください）");
       }
     } catch (err: any) {
       if (err.name === "AbortError") return;
-      console.error(err);
-      setErrorMessage("書籍情報の取得に失敗しました。");
+      setErrorMessage("情報の取得中にエラーが発生しました。");
     } finally {
       if (abortControllerRef.current === controller) {
         setFetching(false);
@@ -159,30 +198,43 @@ export default function AddBookPage() {
     }
   };
 
+  const handleDeleteExistingBook = async () => {
+    if (!existingBook) return;
+    setLoading(true);
+    const { error } = await supabase.from("books").delete().eq("id", existingBook.id);
+    setLoading(false);
+
+    if (error) {
+      setErrorMessage(`削除に失敗しました: ${error.message}`);
+    } else {
+      setSuccessMessage("データベースから本のデータを削除しました。");
+      clearForm();
+    }
+  };
+
   const startScanner = async () => {
     setIsScanning(true);
     setErrorMessage("");
     setCheckMessage(null);
+
     setTimeout(async () => {
       try {
         const html5QrCode = new Html5Qrcode("reader");
         scannerRef.current = html5QrCode;
-
         await html5QrCode.start(
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 250, height: 100 } },
-          async (decodedText) => {
+          (decodedText) => {
             if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
-              await stopScanner();
               setIsbn(decodedText);
+              stopScanner();
               handleAutoFetchAndCheck(decodedText);
             }
           },
           () => {}
         );
       } catch (err) {
-        console.error("Camera start error:", err);
-        setErrorMessage("カメラを起動できませんでした。権限を確認してください。");
+        setErrorMessage("カメラを起動できませんでした。");
         setIsScanning(false);
       }
     }, 100);
@@ -191,13 +243,9 @@ export default function AddBookPage() {
   const stopScanner = async () => {
     if (scannerRef.current) {
       try {
-        if (scannerRef.current.isScanning) {
-          await scannerRef.current.stop();
-        }
+        if (scannerRef.current.isScanning) await scannerRef.current.stop();
         scannerRef.current.clear();
-      } catch (err) {
-        console.error("Failed to stop scanner", err);
-      }
+      } catch (e) {}
       scannerRef.current = null;
     }
     setIsScanning(false);
@@ -218,8 +266,7 @@ export default function AddBookPage() {
           videoRef.current.srcObject = stream;
         }
       } catch (err) {
-        console.error("Camera start error:", err);
-        setErrorMessage("カメラを起動できませんでした。権限を確認してください。");
+        setErrorMessage("カメラを起動できませんでした。");
         setIsCustomCameraOpen(false);
       }
     }, 100);
@@ -282,29 +329,11 @@ export default function AddBookPage() {
     setIsCropOpen(false);
   };
 
-  // 既存データの削除機能
-  const handleDeleteExisting = async () => {
-    if (!existingBook) return;
-    if (!window.confirm(`「${existingBook.title}」を削除しますか？`)) return;
-
-    const { error } = await supabase.from("books").delete().eq("id", existingBook.id);
-    if (error) {
-      setErrorMessage(`削除に失敗しました: ${error.message}`);
-    } else {
-      setSuccessMessage("既存のデータを削除しました。");
-      setExistingBook(null);
-      setCheckMessage("✅ 未登録状態になりました");
-      setTimeout(() => setSuccessMessage(""), 2000);
-    }
-  };
-
   useEffect(() => {
     return () => {
       stopScanner();
       stopCustomCamera();
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, []);
 
@@ -317,13 +346,15 @@ export default function AddBookPage() {
 
     setLoading(true);
     setErrorMessage("");
+    setSuccessMessage("");
     const cleanIsbn = isbn.trim();
 
     if (existingBook) {
-      // ⚠️ 更新時は created_at を含めないため、元の登録日のまま維持されます
+      // ⚠️ 更新時は created_at を含めないため、元の登録日が維持されます
       const { error } = await supabase
         .from("books")
         .update({
+          isbn: cleanIsbn || null,
           title: title.trim(),
           sub_title: subTitle.trim() || null,
           sort_title: sortTitle.trim() || title.trim(),
@@ -331,27 +362,21 @@ export default function AddBookPage() {
           series: series.trim() || null,
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
-          location: location.trim() || null,
+          release_date: releaseDate.trim() || null,
           status: status,
           memo: memo.trim() || null,
+          rating: rating,
+          location: location.trim() || null,
           image_url: imageUrl || null,
         })
         .eq("id", existingBook.id);
 
-      if (error) {
-        console.error(error);
-        setErrorMessage(`更新に失敗しました: ${error.message}`);
-        setLoading(false);
-      } else {
-        setSuccessMessage("既存のデータを更新しました！（登録日は維持されます）");
-        clearForm();
-        setTimeout(() => {
-          router.push(status === "持っている" ? "/" : "/want");
-        }, 800);
-      }
+      if (error) setErrorMessage(`更新に失敗しました: ${error.message}`);
+      else setSuccessMessage("既存のデータを更新しました！（登録日は維持されます）");
     } else {
       const { error } = await supabase.from("books").insert([
         {
+          isbn: cleanIsbn || null,
           title: title.trim(),
           sub_title: subTitle.trim() || null,
           sort_title: sortTitle.trim() || title.trim(),
@@ -359,54 +384,59 @@ export default function AddBookPage() {
           series: series.trim() || null,
           authors: authors.trim() || null,
           publisher: publisher.trim() || null,
-          location: location.trim() || null,
-          isbn: cleanIsbn || null,
+          release_date: releaseDate.trim() || null,
           status: status,
-          memo: memo.trim() || null,
-          image_url: imageUrl || null,
           created_at: registeredDate ? new Date(registeredDate).toISOString() : new Date().toISOString(),
+          memo: memo.trim() || null,
+          rating: rating,
+          location: location.trim() || null,
+          image_url: imageUrl || null,
         },
       ]);
 
       if (error) {
-        console.error(error);
-        if (error.code === "23505") {
-          setErrorMessage("このISBNの本はすでに登録されています。");
-        } else {
-          setErrorMessage(`登録に失敗しました: ${error.message}`);
-        }
-        setLoading(false);
+        if (error.code === "23505") setErrorMessage("このISBNの本はすでに登録されています。");
+        else setErrorMessage(`登録に失敗しました: ${error.message}`);
       } else {
-        setSuccessMessage("登録が完了しました！");
-        clearForm();
-        setTimeout(() => {
-          router.push(status === "持っている" ? "/" : "/want");
-        }, 800);
+        setSuccessMessage("本を登録しました！");
       }
     }
+    setLoading(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-44 relative">
-      
+      <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-4 py-3 md:px-8">
+        <div className="max-w-3xl mx-auto flex items-center justify-between">
+          <Link
+            href="/"
+            className="flex items-center gap-1.5 text-xs font-bold text-paper-text-main bg-paper-sub px-3 py-1.5 border border-paper-border hover:bg-paper-border transition"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>本棚に戻る</span>
+          </Link>
+          <div className="flex items-center gap-2">
+            <h1 className="text-sm font-bold tracking-wider text-paper-text-main">本を登録する</h1>
+            <span className="text-[10px] bg-paper-sub text-paper-text-sub px-1.5 py-0.5 font-mono border border-paper-border">
+              {APP_VERSION}
+            </span>
+          </div>
+          <div className="w-16" />
+        </div>
+      </header>
+
       {/* バーコードスキャン用モーダル */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
-          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
-            <div className="flex justify-between items-center">
-              <h2 className="text-xs font-bold text-paper-text-main">バーコードを枠内に合わせてください</h2>
-              <button
-                type="button"
-                onClick={stopScanner}
-                className="p-1 text-paper-text-sub hover:text-paper-text-main bg-paper-sub rounded-full cursor-pointer"
-              >
+          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 relative shadow-xl">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-sm font-bold text-paper-text-main">バーコードを枠内に合わせてください</h2>
+              <button type="button" onClick={stopScanner} className="p-1 text-paper-text-sub bg-paper-sub border border-paper-border cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div id="reader" className="w-full overflow-hidden rounded bg-black"></div>
-            <p className="text-[11px] text-paper-text-sub text-center">
-              本の裏表紙にある「978」から始まるバーコードをスキャンします
-            </p>
+            <div id="reader" className="w-full overflow-hidden bg-black"></div>
           </div>
         </div>
       )}
@@ -419,52 +449,28 @@ export default function AddBookPage() {
               <h2 className="text-xs font-bold text-paper-text-main">
                 {isPreviewMode ? "撮影プレビュー" : "カメラで撮影"}
               </h2>
-              <button
-                type="button"
-                onClick={stopCustomCamera}
-                className="p-1 text-paper-text-sub hover:text-paper-text-main bg-paper-sub rounded-full cursor-pointer"
-              >
+              <button type="button" onClick={stopCustomCamera} className="p-1 text-paper-text-sub bg-paper-sub rounded-full cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="relative w-full aspect-[4/3] bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                className={`w-full h-full object-cover ${isPreviewMode ? "hidden" : "block"}`}
-              ></video>
-              <canvas
-                ref={canvasRef}
-                className={`w-full h-full object-cover ${isPreviewMode ? "block" : "hidden"}`}
-              ></canvas>
+              <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover ${isPreviewMode ? "hidden" : "block"}`}></video>
+              <canvas ref={canvasRef} className={`w-full h-full object-cover ${isPreviewMode ? "block" : "hidden"}`}></canvas>
             </div>
 
             <div className="flex justify-center gap-3 pt-2">
               {!isPreviewMode ? (
-                <button
-                  type="button"
-                  onClick={takePhoto}
-                  className="px-6 py-2.5 bg-paper-caramel text-white font-bold text-xs rounded-full shadow-md hover:opacity-90 cursor-pointer flex items-center gap-1.5"
-                >
+                <button type="button" onClick={takePhoto} className="px-6 py-2.5 bg-paper-caramel text-white font-bold text-xs rounded-full shadow-md hover:opacity-90 cursor-pointer flex items-center gap-1.5">
                   <Camera className="w-4 h-4" />
                   <span>シャッターを切る</span>
                 </button>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    onClick={retakePhoto}
-                    className="px-4 py-2 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs rounded shadow-xs hover:bg-paper-border cursor-pointer"
-                  >
+                  <button type="button" onClick={retakePhoto} className="px-4 py-2 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs rounded shadow-xs cursor-pointer">
                     撮り直す
                   </button>
-                  <button
-                    type="button"
-                    onClick={stopCustomCamera}
-                    className="px-6 py-2 bg-emerald-600 text-white font-bold text-xs rounded shadow-xs hover:opacity-90 cursor-pointer"
-                  >
+                  <button type="button" onClick={stopCustomCamera} className="px-6 py-2 bg-emerald-600 text-white font-bold text-xs rounded shadow-xs cursor-pointer">
                     この写真を使う
                   </button>
                 </>
@@ -480,7 +486,7 @@ export default function AddBookPage() {
           <div className="relative max-w-lg w-full bg-paper-card p-2 rounded-lg border border-paper-border space-y-2" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center px-2">
               <h3 className="text-xs font-bold text-paper-text-main">画像プレビュー</h3>
-              <button type="button" onClick={() => setIsZoomOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main">
+              <button type="button" onClick={() => setIsZoomOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -491,28 +497,18 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* トリミング・拡大縮小編集モーダル */}
+      {/* トリミングモーダル */}
       {isCropOpen && imageUrl && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
             <div className="flex justify-between items-center">
               <h3 className="text-xs font-bold text-paper-text-main">画像を自由に調整（トリミング・拡大縮小）</h3>
-              <button type="button" onClick={() => setIsCropOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main">
+              <button type="button" onClick={() => setIsCropOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <img
-              ref={rawImageRef}
-              src={imageUrl}
-              alt="raw"
-              className="hidden"
-              onLoad={() => {
-                setCropZoom(1);
-                setCropOffsetX(0);
-                setCropOffsetY(0);
-              }}
-            />
+            <img ref={rawImageRef} src={imageUrl} alt="raw" className="hidden" onLoad={() => { setCropZoom(1); setCropOffsetX(0); setCropOffsetY(0); }} />
 
             <div className="relative w-full h-64 bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center">
               <div 
@@ -552,83 +548,46 @@ export default function AddBookPage() {
                 <span className="font-bold text-paper-text-sub">拡大・縮小</span>
                 <span className="font-mono">{cropZoom.toFixed(2)}x</span>
               </div>
-              <input
-                type="range"
-                min="0.5"
-                max="3"
-                step="0.05"
-                value={cropZoom}
-                onChange={(e) => setCropZoom(parseFloat(e.target.value))}
-                className="w-full accent-paper-caramel"
-              />
-              <p className="text-[10px] text-paper-text-sub text-center">画像ドラッグで位置調整もできます</p>
+              <input type="range" min="0.5" max="3" step="0.05" value={cropZoom} onChange={(e) => setCropZoom(parseFloat(e.target.value))} className="w-full accent-paper-caramel" />
             </div>
 
             <canvas ref={cropCanvasRef} className="hidden"></canvas>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-paper-border">
-              <button
-                type="button"
-                onClick={() => setIsCropOpen(false)}
-                className="px-4 py-1.5 bg-paper-sub border border-paper-border font-bold text-xs rounded"
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={applyCrop}
-                className="px-6 py-1.5 bg-paper-caramel text-white font-bold text-xs rounded shadow-xs"
-              >
-                この大きさに切り抜く
-              </button>
+              <button type="button" onClick={() => setIsCropOpen(false)} className="px-4 py-1.5 bg-paper-sub border border-paper-border font-bold text-xs rounded cursor-pointer">キャンセル</button>
+              <button type="button" onClick={applyCrop} className="px-6 py-1.5 bg-paper-caramel text-white font-bold text-xs rounded shadow-xs cursor-pointer">この大きさに切り抜く</button>
             </div>
           </div>
         </div>
       )}
 
-      <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-3 py-2.5 md:px-6">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <Link
-            href="/"
-            className="flex items-center gap-1 text-xs font-bold text-paper-text-main bg-paper-sub px-2.5 py-1.5 border border-paper-border hover:bg-paper-border transition"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>本棚</span>
-          </Link>
-          <h1 className="text-sm font-bold text-paper-text-main">本を登録する</h1>
-          <span className="text-[10px] font-mono text-paper-text-sub opacity-60">
-            {APP_VERSION}
-          </span>
-        </div>
-      </header>
-
-      <main className="max-w-3xl mx-auto px-3 md:px-6 py-4 space-y-4">
+      <main className="max-w-3xl mx-auto px-4 py-8 md:px-8 space-y-4">
         {successMessage && (
-          <div className="p-3 bg-emerald-950/20 border border-emerald-800 text-emerald-700 text-xs rounded flex items-center gap-2">
-            <Check className="w-4 h-4" />
+          <div className="p-3 bg-[#E6F4EA] border border-[#A8DADC] text-[#1D3557] text-xs flex items-center gap-2">
+            <Check className="w-4 h-4 text-[#2A9D8F]" />
             <span>{successMessage}</span>
           </div>
         )}
 
         {errorMessage && (
-          <div className="p-3 bg-red-950/20 border border-red-800 text-red-700 text-xs rounded">
-            {errorMessage}
+          <div className="p-3 bg-[#F8D7DA] border border-[#F5C6CB] text-[#721C24] text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="bg-paper-card border border-paper-border p-5 space-y-4 shadow-sm">
+            <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider flex items-center gap-1.5 border-b border-paper-border pb-2">
+              <BookOpen className="w-3.5 h-3.5 text-paper-caramel" /> 書籍詳細
+            </h2>
 
-          {/* ステータス選択 */}
-          <div className="bg-paper-card border border-paper-border p-3 space-y-2">
-            <label className="block font-bold text-paper-text-sub">ステータス</label>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setStatus("持っている")}
-                className={`py-2 px-3 text-center font-bold border transition rounded cursor-pointer ${
-                  status === "持っている"
-                    ? "bg-paper-caramel text-white border-paper-caramel shadow-xs"
-                    : "bg-paper-sub text-paper-text-sub border-paper-border hover:bg-paper-border"
+                className={`py-2 text-xs font-bold border transition cursor-pointer ${
+                  status === "持っている" ? "bg-paper-caramel text-white border-paper-caramel" : "bg-paper-sub text-paper-text-body border-paper-border hover:bg-paper-border"
                 }`}
               >
                 持っている本
@@ -636,216 +595,289 @@ export default function AddBookPage() {
               <button
                 type="button"
                 onClick={() => setStatus("欲しい")}
-                className={`py-2 px-3 text-center font-bold border transition rounded cursor-pointer ${
-                  status === "欲しい"
-                    ? "bg-paper-caramel text-white border-paper-caramel shadow-xs"
-                    : "bg-paper-sub text-paper-text-sub border-paper-border hover:bg-paper-border"
+                className={`py-2 text-xs font-bold border transition cursor-pointer ${
+                  status === "欲しい" ? "bg-paper-caramel text-white border-paper-caramel" : "bg-paper-sub text-paper-text-body border-paper-border hover:bg-paper-border"
                 }`}
               >
                 欲しい本
               </button>
             </div>
-          </div>
 
-          {/* ISBN & スキャン */}
-          <div className="bg-paper-card border border-paper-border p-3 space-y-2">
-            <label className="block font-bold text-paper-text-sub">ISBN</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={isbn}
-                onChange={(e) => setIsbn(e.target.value)}
-                placeholder="978から始まる13桁"
-                className="flex-1 bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main font-mono"
-              />
-              <button
-                type="button"
-                onClick={startScanner}
-                className="px-4 py-1.5 bg-paper-caramel text-white font-bold flex items-center gap-1 cursor-pointer hover:opacity-90 shrink-0"
-              >
-                <ScanLine className="w-4 h-4" />
-                <span>スキャン</span>
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => handleAutoFetchAndCheck()}
-                className="px-4 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main hover:bg-paper-border cursor-pointer flex items-center gap-1.5"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${fetching ? "animate-spin text-paper-caramel" : ""}`} />
-                <span>{fetching ? "再取得中..." : "自動取得"}</span>
-              </button>
-
-              {existingBook && (
-                <button
-                  type="button"
-                  onClick={handleDeleteExisting}
-                  className="px-3 py-1.5 bg-paper-danger text-white font-bold flex items-center gap-1 rounded hover:opacity-90 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>既存データを削除する</span>
-                </button>
-              )}
-            </div>
-
-            {checkMessage && (
-              <p className={`text-[11px] font-bold ${existingBook ? "text-amber-600" : "text-emerald-600"}`}>
-                {checkMessage}
-              </p>
-            )}
-          </div>
-
-          {/* 📸 画像 ＆ 右側に撮影ボタン */}
-          <div className="bg-paper-card border border-paper-border p-3 space-y-2">
-            <label className="block font-bold text-paper-text-sub">画像</label>
-            <div className="flex items-start gap-4">
-              {imageUrl ? (
-                <div className="relative w-28 h-28 border border-paper-border overflow-hidden bg-white shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
-                  <img src={imageUrl} alt="撮影プレビュー" className="w-full h-full object-cover" />
-                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                    <ZoomIn className="w-5 h-5" />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setImageUrl(""); }}
-                    className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full cursor-pointer hover:bg-black"
-                    title="写真を削除"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-paper-caramel" /> 登録日
+                </label>
+                <input
+                  type="date"
+                  value={registeredDate}
+                  onChange={(e) => setRegisteredDate(e.target.value)}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
+                  <Star className="w-3 h-3 text-amber-500 fill-amber-400" /> お気に入り度
+                </label>
+                <div className="flex items-center gap-1 py-1.5">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(rating === star ? 0 : star)}
+                      className="p-1 cursor-pointer"
+                    >
+                      <Star
+                        className={`w-5 h-5 ${
+                          rating >= star ? "fill-amber-400 text-amber-500" : "text-gray-400/70"
+                        }`}
+                      />
+                    </button>
+                  ))}
                 </div>
-              ) : (
-                <div className="w-28 h-28 border border-dashed border-paper-border flex items-center justify-center text-paper-text-sub text-[10px] bg-paper-inner">
-                  写真なし
-                </div>
-              )}
-
-              <div className="flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={startCustomCamera}
-                  className="px-4 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
-                >
-                  <Camera className="w-4 h-4" />
-                  <span>撮影する</span>
-                </button>
-
-                {imageUrl && (
-                  <button
-                    type="button"
-                    onClick={() => setIsCropOpen(true)}
-                    className="px-4 py-2 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Crop className="w-4 h-4 text-paper-caramel" />
-                    <span>トリミング・調整</span>
-                  </button>
-                )}
               </div>
             </div>
-          </div>
 
-          {/* 各種入力欄（タイトル、読み、サブタイトル、巻数、著者、発行所、シリーズ名、置き場所、メモ） */}
-          <div className="bg-paper-card border border-paper-border p-3 space-y-3">
+            {/* ISBN ＆ 読み取りボタン、真ん中の自動取得ボタン */}
             <div>
-              <label className="block font-bold text-paper-text-main mb-1">タイトル <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
-                required
-              />
+              <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={isbn}
+                  onChange={(e) => setIsbn(e.target.value)}
+                  placeholder="978から始まる13桁"
+                  className="flex-1 bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={startScanner}
+                  className="cursor-pointer text-xs text-paper-text-main bg-paper-sub hover:bg-paper-border px-4 py-2 border border-paper-border flex items-center gap-1.5 font-bold whitespace-nowrap shadow-2xs"
+                >
+                  <Camera className="w-3.5 h-3.5 text-paper-caramel" />
+                  <span>読み取り</span>
+                </button>
+              </div>
+
+              {/* 🟢 ご要望通り：真ん中らへんに配置した自動取得ボタン */}
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => handleAutoFetchAndCheck()}
+                  disabled={fetching}
+                  className="w-full py-2.5 bg-paper-sub hover:bg-paper-border text-paper-text-main text-xs font-bold transition flex items-center justify-center gap-1.5 border border-paper-border cursor-pointer shadow-2xs"
+                >
+                  {fetching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5 text-paper-caramel" />}
+                  <span>{fetching ? "取得中..." : "自動取得"}</span>
+                </button>
+              </div>
+
+              {checkMessage && (
+                <div className={`mt-2 p-2.5 text-xs border flex items-center justify-between ${
+                  existingBook ? "bg-[#FFF3CD] border-[#FFEEBA] text-[#856404]" : "bg-[#D4EDDA] border-[#C3E6CB] text-[#155724]"
+                }`}>
+                  <div>
+                    <span>{checkMessage}</span>
+                    {existingBook && (
+                      <p className="mt-0.5 text-[11px]">
+                        （登録日: {new Date(existingBook.created_at).toLocaleDateString()} / ステータス: {existingBook.status}）
+                      </p>
+                    )}
+                  </div>
+                  {existingBook && (
+                    <button
+                      type="button"
+                      onClick={handleDeleteExistingBook}
+                      className="text-[11px] bg-red-600 hover:bg-red-700 text-white px-2.5 py-1 font-bold transition cursor-pointer flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>データを削除する</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            {/* 📸 画像 ＆ 撮影・トリミングボタン */}
+            <div className="pt-2 border-t border-paper-border">
+              <label className="block text-xs font-bold text-paper-text-sub mb-1">画像</label>
+              <div className="flex items-start gap-4">
+                {imageUrl ? (
+                  <div className="relative w-28 h-28 border border-paper-border overflow-hidden bg-white shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
+                    <img src={imageUrl} alt="撮影プレビュー" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                      <ZoomIn className="w-5 h-5" />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setImageUrl(""); }}
+                      className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full cursor-pointer hover:bg-black"
+                      title="写真を削除"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="w-28 h-28 border border-dashed border-paper-border flex items-center justify-center text-paper-text-sub text-[10px] bg-paper-inner">
+                    写真なし
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={startCustomCamera}
+                    className="px-4 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>撮影する</span>
+                  </button>
+
+                  {imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCropOpen(true)}
+                      className="px-4 py-2 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Crop className="w-4 h-4 text-paper-caramel" />
+                      <span>トリミング・調整</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* タイトル ＆ フリガナ */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-paper-border">
               <div>
-                <label className="block font-bold text-paper-text-sub mb-1">読み（フリガナ）</label>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">
+                  タイトル <span className="text-paper-danger">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={title}
+                  onChange={(e) => {
+                    setTitle(e.target.value);
+                    if (!sortTitle) setSortTitle(e.target.value);
+                  }}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">フリガナ（並び替え用）</label>
                 <input
                   type="text"
                   value={sortTitle}
                   onChange={(e) => setSortTitle(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main"
                 />
               </div>
-              <div>
-                <label className="block font-bold text-paper-text-sub mb-1">サブタイトル</label>
+            </div>
+
+            {/* サブタイトル ＆ 巻数 */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="md:col-span-3">
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">サブタイトル</label>
                 <input
                   type="text"
                   value={subTitle}
                   onChange={(e) => setSubTitle(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main"
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block font-bold text-paper-text-sub mb-1">巻数</label>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">巻数</label>
                 <input
                   type="text"
                   value={volume}
                   onChange={(e) => setVolume(e.target.value)}
-                  placeholder="例: 1"
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-paper-text-sub mb-1">シリーズ名</label>
-                <input
-                  type="text"
-                  value={series}
-                  onChange={(e) => setSeries(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main font-mono"
                 />
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            {/* 著者名 ＆ 発行所 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block font-bold text-paper-text-sub mb-1">著者</label>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">著者名</label>
                 <input
                   type="text"
                   value={authors}
                   onChange={(e) => setAuthors(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
                 />
               </div>
               <div>
-                <label className="block font-bold text-paper-text-sub mb-1">発行所</label>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">発行所</label>
                 <input
                   type="text"
                   value={publisher}
                   onChange={(e) => setPublisher(e.target.value)}
-                  className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="block font-bold text-paper-text-sub mb-1">置き場所</label>
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                placeholder="例: リビング本棚"
-                className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
-              />
+            {/* 発行月 ＆ シリーズ名 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-paper-caramel" /> 発行月
+                </label>
+                <input
+                  type="month"
+                  value={releaseDate}
+                  onChange={(e) => setReleaseDate(e.target.value)}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
+                  <Layers className="w-3 h-3 text-paper-caramel" /> シリーズ名
+                </label>
+                <input
+                  type="text"
+                  value={series}
+                  onChange={(e) => setSeries(e.target.value)}
+                  className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main"
+                />
+              </div>
             </div>
 
+            {/* 置き場所 */}
             <div>
-              <label className="block font-bold text-paper-text-sub mb-1">メモ</label>
+              <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-paper-caramel" /> 置き場所
+              </label>
+              <input
+                type="text"
+                list="location-list"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="選択肢から選ぶか、直接入力してください"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
+              />
+              <datalist id="location-list">
+                {existingLocations.map((loc) => (
+                  <option key={loc} value={loc} />
+                ))}
+              </datalist>
+            </div>
+
+            {/* メモ */}
+            <div>
+              <label className="block text-xs font-bold text-paper-text-sub mb-1">メモ</label>
               <textarea
                 rows={2}
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
-                className="w-full bg-paper-inner border border-paper-border p-2 text-paper-text-main"
+                className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
               />
             </div>
           </div>
 
-          {/* 🟢 下部に常時固定する「本棚に登録する」ボタン */}
+          {/* 🟢 下部に常時固定する登録・更新ボタン */}
           <div className="fixed bottom-16 left-0 right-0 z-20 bg-paper-card/95 backdrop-blur-md border-t border-paper-border p-3 shadow-lg">
             <div className="max-w-3xl mx-auto flex justify-end px-3">
               <button
@@ -854,7 +886,7 @@ export default function AddBookPage() {
                 className="w-full md:w-auto px-8 py-3 bg-paper-caramel text-white font-bold cursor-pointer shadow-md hover:opacity-95 flex items-center justify-center gap-2 text-sm disabled:opacity-50 rounded"
               >
                 <Save className="w-4 h-4" />
-                <span>{existingBook ? "既存データを更新する" : "本棚に登録する"}</span>
+                <span>{existingBook ? "既存データを更新する" : "本を登録"}</span>
               </button>
             </div>
           </div>
