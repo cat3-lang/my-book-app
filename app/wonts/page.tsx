@@ -1,182 +1,578 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon } from "lucide-react";
+import { ArrowLeft, BookOpen, Trash2, Edit3, Camera, Upload, ZoomIn, X, ArrowUp, ArrowDown, Star, MapPin, Save } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.87";
+const APP_VERSION = "v1.1.01";
 
 type WantBook = {
   id: string;
   title: string;
+  sub_title: string | null;
+  sort_title: string | null;
+  volume: string | null;
+  series: string | null;
   authors: string | null;
   publisher: string | null;
   isbn: string | null;
-  status: string;
-  requester: string | null;
+  status: string; // 「欲しい」または「その他（本棚の奥など）」
   memo: string | null;
-  image_url: string | null;
+  release_date: string | null;
   created_at: string;
+  rating?: number | null;
+  location?: string | null;
+  image_url?: string | null;
 };
 
-export default function WantBookPage() {
+export default function WantPage() {
+  const [authChecking, setAuthChecking] = useState(true);
   const [books, setBooks] = useState<WantBook[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedIds, setExpandedIds] = useState<{ [key: string]: boolean }>({});
 
-  const fetchWantBooks = async () => {
+  // 編集中の本のIDとフォーム
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<Partial<WantBook>>({});
+
+  // 画像拡大モーダル
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
+  // カメラ撮影用
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [activeCameraBookId, setActiveCameraBookId] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  // 🔒 未ログインチェック
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        window.location.href = "/login";
+      } else {
+        setAuthChecking(false);
+      }
+    };
+    checkUser();
+  }, []);
+
+  // データの取得
+  const fetchBooks = async () => {
     setLoading(true);
+    // 「持っている」以外の本（「欲しい」や「その他」など）を取得
     const { data, error } = await supabase
       .from("books")
       .select("*")
-      .eq("status", "欲しい")
-      .order("created_at", { ascending: false });
+      .neq("status", "持っている");
 
-    if (!error) {
-      setBooks(data || []);
+    if (error) {
+      console.error("Error fetching want books:", error);
+    } else {
+      let fetchedBooks: WantBook[] = data || [];
+      
+      // ローカルストレージに保存されたカスタム並び順（IDリスト）を適用
+      const savedOrder = localStorage.getItem("want_books_order");
+      if (savedOrder) {
+        try {
+          const orderIds: string[] = JSON.parse(savedOrder);
+          fetchedBooks.sort((a, b) => {
+            const indexA = orderIds.indexOf(a.id);
+            const indexB = orderIds.indexOf(b.id);
+            if (indexA === -1 && indexB === -1) return 0;
+            if (indexA === -1) return 1;
+            if (indexB === -1) return -1;
+            return indexA - indexB;
+          });
+        } catch (e) {}
+      }
+      setBooks(fetchedBooks);
     }
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchWantBooks();
-  }, []);
+    if (!authChecking) {
+      fetchBooks();
+    }
+  }, [authChecking]);
 
-  const toggleExpand = (id: string) => {
-    setExpandedIds(prev => ({ ...prev, [id]: !prev[id] }));
+  // 並び順の保存
+  const saveOrder = (newBooks: WantBook[]) => {
+    setBooks(newBooks);
+    const orderIds = newBooks.map(b => b.id);
+    localStorage.setItem("want_books_order", JSON.stringify(orderIds));
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!window.confirm("削除しますか？")) return;
-    const { error } = await supabase.from("books").delete().eq("id", id);
-    if (!error) {
-      setBooks(books.filter(b => b.id !== id));
+  // 自由な順番変更（1つ上へ）
+  const moveUp = (index: number) => {
+    if (index === 0) return;
+    const newBooks = [...books];
+    const temp = newBooks[index];
+    newBooks[index] = newBooks[index - 1];
+    newBooks[index - 1] = temp;
+    saveOrder(newBooks);
+  };
+
+  // 自由な順番変更（1つ下へ）
+  const moveDown = (index: number) => {
+    if (index === books.length - 1) return;
+    const newBooks = [...books];
+    const temp = newBooks[index];
+    newBooks[index] = newBooks[index + 1];
+    newBooks[index + 1] = temp;
+    saveOrder(newBooks);
+  };
+
+  // 編集開始
+  const startEditing = (book: WantBook) => {
+    setEditingId(book.id);
+    setEditForm({ ...book });
+  };
+
+  // 編集保存
+  const handleSaveInline = async (id: string) => {
+    const updateData = {
+      title: editForm.title || "",
+      sub_title: editForm.sub_title || null,
+      sort_title: editForm.sort_title || editForm.title || "",
+      volume: editForm.volume || null,
+      series: editForm.series || null,
+      authors: editForm.authors || null,
+      publisher: editForm.publisher || null,
+      status: editForm.status || "欲しい",
+      memo: editForm.memo || null,
+      rating: editForm.rating || 0,
+      location: editForm.location || null,
+      image_url: editForm.image_url || null,
+    };
+
+    const { error } = await supabase
+      .from("books")
+      .update(updateData)
+      .eq("id", id);
+
+    if (error) {
+      alert("保存に失敗しました: " + error.message);
+    } else {
+      setBooks(books.map((b) => (b.id === id ? { ...b, ...updateData } : b)));
+      setEditingId(null);
     }
   };
 
-  const sortedBooks = [...books].sort((a, b) => {
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
+  // 削除処理
+  const handleDelete = async (id: string, title: string) => {
+    if (!window.confirm(`「${title}」を削除してもよろしいですか？`)) return;
+
+    const { error } = await supabase.from("books").delete().eq("id", id);
+    if (error) {
+      alert("削除に失敗しました: " + error.message);
+    } else {
+      const updated = books.filter((b) => b.id !== id);
+      saveOrder(updated);
+      if (editingId === id) setEditingId(null);
+    }
+  };
+
+  // フォルダから画像選択
+  const handleFileChange = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        // 即座にSupabaseを更新
+        const { error } = await supabase
+          .from("books")
+          .update({ image_url: result })
+          .eq("id", id);
+
+        if (!error) {
+          setBooks(books.map(b => b.id === id ? { ...b, image_url: result } : b));
+          if (editingId === id) setEditForm(prev => ({ ...prev, image_url: result }));
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // カメラ撮影起動
+  const startCameraForBook = (id: string) => {
+    setActiveCameraBookId(id);
+    setIsCameraOpen(true);
+    setTimeout(async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        mediaStreamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
+      } catch (err) {
+        alert("カメラを起動できませんでした。");
+        setIsCameraOpen(false);
+      }
+    }, 100);
+  };
+
+  // カメラ写真決定
+  const capturePhoto = async () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || !activeCameraBookId) return;
+
+    canvas.width = 400;
+    canvas.height = 566;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    }
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+
+    // DBへ直ちに反映
+    const { error } = await supabase
+      .from("books")
+      .update({ image_url: dataUrl })
+      .eq("id", activeCameraBookId);
+
+    if (!error) {
+      setBooks(books.map(b => b.id === activeCameraBookId ? { ...b, image_url: dataUrl } : b));
+      if (editingId === activeCameraBookId) setEditForm(prev => ({ ...prev, image_url: dataUrl }));
+    }
+
+    stopCamera();
+  };
+
+  const stopCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setIsCameraOpen(false);
+    setActiveCameraBookId(null);
+  };
+
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-paper-bg flex items-center justify-center text-xs text-paper-text-sub font-mono">
+        認証確認中...
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-36 relative">
-      
+    <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-32 relative">
+      <div className="absolute top-1 right-2 z-20 text-[9px] text-paper-text-sub font-mono">
+        {APP_VERSION}
+      </div>
+
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-3 py-2.5 md:px-6">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <Link
-            href="/"
-            className="flex items-center gap-1 text-xs font-bold text-paper-text-main bg-paper-sub px-2.5 py-1.5 border border-paper-border hover:bg-paper-border transition"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>本棚</span>
-          </Link>
-          <h1 className="text-sm font-bold text-paper-text-main">
-            欲しい本リスト
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <h1 className="text-sm font-bold text-paper-text-main flex items-center gap-1.5">
+            <BookOpen className="w-4 h-4 text-paper-caramel" /> Bookノート
           </h1>
-          <span className="text-[10px] font-mono text-paper-text-sub opacity-60">
-            {APP_VERSION}
-          </span>
+          <div className="text-xs font-mono text-paper-text-main font-bold px-2 py-1 bg-paper-sub border border-paper-border shrink-0">
+            {books.length} 件
+          </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-3 md:px-6 py-4 space-y-4">
-        
-        <div className="bg-paper-card border border-paper-border p-3 flex items-center justify-between shadow-2xs">
-          <div className="text-xs font-bold text-paper-text-sub font-mono">
-            登録数：{books.length} 冊
+      {/* 🖼️ 画像拡大ポップアップモーダル */}
+      {previewImageUrl && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div 
+            className="relative max-w-xl w-full bg-paper-card p-3 rounded-lg border border-paper-border space-y-2 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center px-1">
+              <h3 className="text-xs font-bold text-paper-text-main">プレビュー拡大</h3>
+              <button 
+                type="button" 
+                onClick={() => setPreviewImageUrl(null)} 
+                className="p-1 text-paper-text-sub hover:text-paper-text-main cursor-pointer bg-paper-sub rounded-full"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="w-full max-h-[75vh] overflow-hidden flex items-center justify-center bg-black rounded">
+              <img 
+                src={previewImageUrl} 
+                alt="拡大写真" 
+                className="max-w-full max-h-[75vh] object-contain" 
+              />
+            </div>
           </div>
         </div>
+      )}
 
+      {/* 📷 カメラ撮影用モーダル */}
+      {isCameraOpen && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xs font-bold text-paper-text-main">カメラで撮影</h2>
+              <button type="button" onClick={stopCamera} className="p-1 text-paper-text-sub bg-paper-sub rounded-full cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="relative w-full aspect-[400/566] max-h-[60vh] bg-black rounded overflow-hidden border border-paper-border">
+              <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover"></video>
+              <canvas ref={canvasRef} className="hidden"></canvas>
+            </div>
+            <div className="flex justify-center pt-2">
+              <button 
+                type="button" 
+                onClick={capturePhoto} 
+                className="px-6 py-2 bg-paper-caramel text-white font-bold text-xs rounded-full shadow-md hover:opacity-90 cursor-pointer flex items-center gap-1.5"
+              >
+                <Camera className="w-4 h-4" />
+                <span>撮影して反映</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <main className="max-w-4xl mx-auto px-2 md:px-6 py-4 space-y-3">
         {loading ? (
-          <p className="text-center text-paper-text-sub py-12 text-xs">読み込み中...</p>
-        ) : sortedBooks.length === 0 ? (
-          <div className="text-center py-16 bg-paper-card border border-paper-border space-y-2">
-            <p className="text-xs text-paper-text-sub">欲しい本はまだ登録されていません</p>
+          <p className="text-center text-paper-text-sub py-8 text-xs">読み込み中...</p>
+        ) : books.length === 0 ? (
+          <div className="text-center py-12 space-y-3 bg-paper-card border border-paper-border">
+            <p className="text-xs text-paper-text-sub">登録されたメモや欲しい本はありません</p>
+            <Link
+              href="/add"
+              className="inline-block text-xs font-bold text-white bg-paper-caramel px-4 py-2 hover:opacity-90 transition"
+            >
+              新規登録する
+            </Link>
           </div>
         ) : (
           <div className="space-y-2.5">
-            {sortedBooks.map((book) => {
-              const isExpanded = !!expandedIds[book.id];
-              const dateStr = book.created_at ? book.created_at.split("T")[0] : "";
+            {books.map((book, index) => {
+              const isEditing = editingId === book.id;
+              const fileInputId = `want_file_${book.id}`;
 
               return (
-                <div
-                  key={book.id}
-                  onClick={() => toggleExpand(book.id)}
-                  className="bg-paper-card border border-paper-border p-3 shadow-xs transition hover:bg-paper-sub/40 cursor-pointer space-y-2"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <span className="text-paper-caramel shrink-0">
-                        {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-                      </span>
-                      <span className="text-[11px] font-mono text-paper-text-sub shrink-0">{dateStr}</span>
-                      <div className="font-bold text-paper-text-main text-sm truncate">
-                        {book.title}
-                      </div>
-                    </div>
-                  </div>
-
-                  {book.requester && (
-                    <div className="flex items-center justify-end pl-6 text-xs text-paper-text-sub">
-                      <div className="flex items-center gap-1 font-bold text-paper-text-main bg-paper-sub px-2.5 py-0.5 border border-paper-border">
-                        <User className="w-3 h-3 text-paper-caramel" />
-                        <span>{book.requester}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {isExpanded && (
-                    <div className="mt-3 pt-3 border-t border-paper-border bg-paper-inner p-3 space-y-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div className="bg-paper-card border border-paper-border h-40 flex items-center justify-center overflow-hidden">
-                          {book.image_url ? (
-                            <img src={book.image_url} alt={book.title} className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="text-center text-paper-text-sub space-y-1">
-                              <ImageIcon className="w-6 h-6 mx-auto opacity-40" />
-                              <span className="text-[10px]">写真なし</span>
-                            </div>
-                          )}
+                <div key={book.id} className="bg-paper-card border border-paper-border p-3 shadow-xs text-xs space-y-2">
+                  {isEditing ? (
+                    /* ✏️ インライン編集モード */
+                    <div className="space-y-2.5">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-paper-text-sub block font-bold">タイトル</label>
+                          <input
+                            type="text"
+                            value={editForm.title || ""}
+                            onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                            className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full"
+                          />
                         </div>
-
-                        <div className="md:col-span-2 space-y-2 text-xs">
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <span className="text-[10px] font-bold text-paper-text-sub block">著者</span>
-                              <span className="font-semibold text-paper-text-main">{book.authors || "ー"}</span>
-                            </div>
-                            <div>
-                              <span className="text-[10px] font-bold text-paper-text-sub block">発行所</span>
-                              <span className="font-semibold text-paper-text-main">{book.publisher || "ー"}</span>
-                            </div>
-                          </div>
-                          <div>
-                            <span className="text-[10px] font-bold text-paper-text-sub block">ISBN</span>
-                            <span className="font-mono text-paper-text-main">{book.isbn || "ー"}</span>
-                          </div>
-                          {book.memo && (
-                            <div>
-                              <span className="text-[10px] font-bold text-paper-text-sub block">メモ</span>
-                              <p className="bg-paper-card p-2 border border-paper-border text-paper-text-body break-words">
-                                {book.memo}
-                              </p>
-                            </div>
-                          )}
+                        <div>
+                          <label className="text-[10px] text-paper-text-sub block font-bold">ステータス</label>
+                          <select
+                            value={editForm.status || "欲しい"}
+                            onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                            className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full font-bold"
+                          >
+                            <option value="欲しい">欲しい本</option>
+                            <option value="その他">その他（奥のメモ等）</option>
+                            <option value="持っている">持っている（本棚へ）</option>
+                          </select>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-2 border-t border-paper-border">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-paper-text-sub block font-bold">置き場所・メモ棚</label>
+                          <input
+                            type="text"
+                            value={editForm.location || ""}
+                            onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
+                            className="bg-white border border-paper-border px-2 py-1 text-xs text-paper-text-main w-full"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-paper-text-sub block font-bold mb-0.5">お気に入り度</label>
+                          <div className="flex items-center gap-1 py-0.5">
+                            {[1, 2, 3].map((star) => (
+                              <button
+                                key={star}
+                                type="button"
+                                onClick={() => setEditForm({ ...editForm, rating: editForm.rating === star ? 0 : star })}
+                                className="cursor-pointer"
+                              >
+                                <Star
+                                  className={`w-4 h-4 ${
+                                    (editForm.rating || 0) >= star ? "fill-amber-400 text-amber-500" : "text-gray-400/70"
+                                  }`}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] text-paper-text-sub block font-bold">詳細メモ</label>
+                        <textarea
+                          rows={2}
+                          value={editForm.memo || ""}
+                          onChange={(e) => setEditForm({ ...editForm, memo: e.target.value })}
+                          className="bg-white border border-paper-border p-1.5 text-xs text-paper-text-main w-full"
+                        />
+                      </div>
+
+                      <div className="flex justify-end gap-2 pt-1 border-t border-paper-border">
                         <button
                           type="button"
-                          onClick={(e) => handleDelete(book.id, e)}
-                          className="px-3 py-1.5 bg-paper-danger text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+                          onClick={() => setEditingId(null)}
+                          className="px-3 py-1 bg-paper-sub border border-paper-border text-paper-text-main font-bold cursor-pointer"
                         >
-                          <Trash2 className="w-3.5 h-3.5" /> <span>削除</span>
+                          キャンセル
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveInline(book.id)}
+                          className="px-3 py-1 bg-paper-caramel text-white font-bold cursor-pointer"
+                        >
+                          保存
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 📄 通常表示カード */
+                    <div className="flex items-start gap-3">
+                      {/* 上下並び替えボタン */}
+                      <div className="flex flex-col gap-1 shrink-0 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => moveUp(index)}
+                          disabled={index === 0}
+                          className="p-1 bg-paper-sub border border-paper-border hover:bg-paper-border disabled:opacity-20 cursor-pointer"
+                          title="上へ移動"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5 text-paper-text-main" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveDown(index)}
+                          disabled={index === books.length - 1}
+                          className="p-1 bg-paper-sub border border-paper-border hover:bg-paper-border disabled:opacity-20 cursor-pointer"
+                          title="下へ移動"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5 text-paper-text-main" />
+                        </button>
+                      </div>
+
+                      {/* 縦長サムネイル（クリックで拡大） */}
+                      <div
+                        className="w-14 aspect-[400/566] border border-paper-border bg-paper-inner shrink-0 overflow-hidden flex items-center justify-center cursor-pointer relative group"
+                        onClick={() => book.image_url && setPreviewImageUrl(book.image_url)}
+                      >
+                        {book.image_url ? (
+                          <img src={book.image_url} alt="表紙" className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-[9px] text-paper-text-sub text-center px-0.5">写真なし</span>
+                        )}
+                        {book.image_url && (
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                            <ZoomIn className="w-4 h-4" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 本・メモの情報 */}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="bg-paper-caramel/10 text-paper-caramel px-1.5 py-0.5 font-bold text-[10px] border border-paper-caramel/20">
+                            {book.status}
+                          </span>
+                          {book.location && (
+                            <span className="text-[10px] text-paper-text-sub flex items-center gap-0.5">
+                              <MapPin className="w-3 h-3 text-paper-caramel" />
+                              {book.location}
+                            </span>
+                          )}
+                          {(book.rating || 0) > 0 && (
+                            <div className="flex items-center">
+                              {[1, 2, 3].map((star) => (
+                                <Star
+                                  key={star}
+                                  className={`w-3 h-3 ${
+                                    (book.rating || 0) >= star ? "fill-amber-400 text-amber-500" : "text-gray-300"
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <h2 className="font-bold text-sm text-paper-text-main break-words">
+                          {book.title}
+                        </h2>
+
+                        {book.memo && (
+                          <p className="text-xs text-paper-text-sub bg-paper-inner p-1.5 border border-paper-border/60 break-words">
+                            {book.memo}
+                          </p>
+                        )}
+
+                        {/* その場で写真撮影・フォルダ選択・編集ボタン */}
+                        <div className="flex items-center justify-between pt-1.5 flex-wrap gap-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => startCameraForBook(book.id)}
+                              className="px-2 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                            >
+                              <Camera className="w-3 h-3 text-paper-caramel" />
+                              <span>撮影</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => document.getElementById(fileInputId)?.click()}
+                              className="px-2 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                            >
+                              <Upload className="w-3 h-3 text-paper-caramel" />
+                              <span>画像選択</span>
+                            </button>
+                            <input
+                              type="file"
+                              id={fileInputId}
+                              accept="image/*"
+                              onChange={(e) => handleFileChange(book.id, e)}
+                              className="hidden"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => startEditing(book)}
+                              className="px-2.5 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                            >
+                              <Edit3 className="w-3 h-3 text-paper-caramel" />
+                              <span>編集</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(book.id, book.title)}
+                              className="px-2 py-1 bg-paper-danger/10 text-paper-danger border border-paper-danger/30 text-[11px] font-bold cursor-pointer hover:bg-paper-danger hover:text-white transition"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   )}
