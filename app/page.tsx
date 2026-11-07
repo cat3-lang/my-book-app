@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown, ArrowUpDown, MapPin, ZoomIn, X } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.69";
+const APP_VERSION = "v1.0.70";
 
 type Book = {
   id: string;
@@ -68,10 +68,8 @@ export default function HomePage() {
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Book>>({});
 
-  // 🔍 画像大きくポップアッププレビュー用の状態
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
-  // 🔒 未ログイン時にログイン画面へ飛ばす処理
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -435,7 +433,6 @@ export default function HomePage() {
                                 </div>
 
                                 <div className="flex items-center gap-2 shrink-0">
-                                  {/* 星3つに変更 */}
                                   <div className="flex items-center">
                                     {[1, 2, 3].map((star) => (
                                       <button
@@ -458,20 +455,24 @@ export default function HomePage() {
                                     {book.created_at ? book.created_at.split("T")[0] : ""}
                                   </span>
 
-                                  {/* 🔍 巻数行の登録日の右側（プレビューアイコンのみ） */}
-                                  {book.image_url && (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setPreviewImageUrl(book.image_url ?? null);
-                                      }}
-                                      className="p-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main cursor-pointer rounded"
-                                      title="画像プレビュー"
-                                    >
-                                      <ZoomIn className="w-3.5 h-3.5 text-paper-caramel" />
-                                    </button>
-                                  )}
+                                  {/* 🔍 画像の有無に関わらずプレビューボタン用の領域を固定し、バランスを統一 */}
+                                  <div className="w-6 flex items-center justify-center">
+                                    {book.image_url ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setPreviewImageUrl(book.image_url ?? null);
+                                        }}
+                                        className="p-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main cursor-pointer rounded"
+                                        title="画像プレビュー"
+                                      >
+                                        <ZoomIn className="w-3.5 h-3.5 text-paper-caramel" />
+                                      </button>
+                                    ) : (
+                                      <div className="w-5" />
+                                    )}
+                                  </div>
                                 </div>
                               </div>
 
@@ -660,7 +661,6 @@ export default function HomePage() {
                                         </div>
                                       </div>
 
-                                      {/* 🟢 削除・編集ボタンの配置 */}
                                       <div className="flex items-center justify-between pt-2 border-t border-paper-border">
                                         <button
                                           type="button"
@@ -697,7 +697,6 @@ export default function HomePage() {
         )}
       </main>
 
-      {/* 🖼️ 画像を大きくポップアップするプレビューモーダル */}
       {previewImageUrl && (
         <div 
           className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out" 

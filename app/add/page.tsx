@@ -4,11 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, Search, Loader2, AlertCircle, Trash2, Star, MapPin, ZoomIn, Crop, Save } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, Upload, X, Search, Loader2, AlertCircle, Trash2, Star, MapPin, ZoomIn, Crop, Save, ListPlus } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.94";
+const APP_VERSION = "v1.0.97";
 
 type ExistingBookInfo = {
   id: string;
@@ -60,6 +60,9 @@ export default function AddBookPage() {
 
   const [existingLocations, setExistingLocations] = useState<string[]>([]);
 
+  // ファイル選択（フォルダから選択）用のref
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
   // 画像拡大・トリミング用
   const [isZoomOpen, setIsZoomOpen] = useState(false);
   const [isCropOpen, setIsCropOpen] = useState(false);
@@ -69,7 +72,6 @@ export default function AddBookPage() {
   const rawImageRef = useRef<HTMLImageElement | null>(null);
   const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // ドラッグ操作用の座標保持用Ref
   const dragRef = useRef({ isDragging: false, startX: 0, startY: 0, initialX: 0, initialY: 0 });
 
   useEffect(() => {
@@ -121,6 +123,19 @@ export default function AddBookPage() {
     setCheckMessage(null);
     setSuccessMessage("");
     setErrorMessage("");
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      if (result) {
+        setImageUrl(result);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleAutoFetchAndCheck = async (targetIsbn?: string) => {
@@ -288,12 +303,10 @@ export default function AddBookPage() {
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
-    // 縦長比率（例: 3:4 = 480x640 または本棚カード比率に合わせたサイズ）
     canvas.width = 400;
     canvas.height = 566;
     const ctx = canvas.getContext("2d");
     if (ctx) {
-      // 映像を中央基準で縦長にトリミングしてキャンバスに描き込む
       const vWidth = video.videoWidth;
       const vHeight = video.videoHeight;
       const targetAspect = 400 / 566;
@@ -327,7 +340,6 @@ export default function AddBookPage() {
     startCustomCamera();
   };
 
-  // トリミング適用処理（プレビューと同じ縦長比率 400×566 に切り抜く）
   const applyCrop = () => {
     const img = rawImageRef.current;
     const canvas = cropCanvasRef.current;
@@ -337,7 +349,7 @@ export default function AddBookPage() {
     if (!ctx) return;
 
     canvas.width = 400;
-    canvas.height = 566; // プレビューと完全に一致する縦長比率
+    canvas.height = 566;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
@@ -349,6 +361,47 @@ export default function AddBookPage() {
     const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
     setImageUrl(croppedDataUrl);
     setIsCropOpen(false);
+  };
+
+  // 🟢 待機リスト（一時保存）へ保存する処理（修正済）
+  const handleSaveToDrafts = () => {
+    if (!title.trim() && !isbn.trim()) {
+      alert("タイトルまたはISBNを入力してください。");
+      return;
+    }
+
+    const draftItem = {
+      id: "draft_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+      isbn: isbn.trim() || null,
+      title: title.trim() || "（タイトル未入力）",
+      sub_title: subTitle.trim() || null,
+      sort_title: sortTitle.trim() || title.trim(),
+      volume: volume.trim() || null,
+      series: series.trim() || null,
+      authors: authors.trim() || null,
+      publisher: publisher.trim() || null,
+      release_date: releaseDate.trim() || null,
+      status: status,
+      memo: memo.trim() || null,
+      registered_date: registeredDate,
+      rating: rating,
+      location: location.trim() || null,
+      image_url: imageUrl || null,
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      const existingDraftsJson = localStorage.getItem("book_drafts");
+      const drafts = existingDraftsJson ? JSON.parse(existingDraftsJson) : [];
+      drafts.unshift(draftItem);
+      localStorage.setItem("book_drafts", JSON.stringify(drafts));
+      
+      setSuccessMessage("待機中リストに一時保存しました！");
+      clearForm();
+    } catch (err) {
+      setErrorMessage("一時保存に失敗しました。");
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   useEffect(() => {
@@ -443,7 +496,13 @@ export default function AddBookPage() {
               {APP_VERSION}
             </span>
           </div>
-          <div className="w-16" />
+          <Link
+            href="/drafts"
+            className="flex items-center gap-1 text-xs font-bold text-paper-caramel bg-paper-sub px-3 py-1.5 border border-paper-border hover:bg-paper-border transition"
+          >
+            <ListPlus className="w-4 h-4" />
+            <span>待機リスト</span>
+          </Link>
         </div>
       </header>
 
@@ -462,7 +521,7 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* 🔴 縦長のカスタムカメラ撮影用モーダル */}
+      {/* カスタムカメラ撮影用モーダル */}
       {isCustomCameraOpen && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-sm bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
@@ -475,7 +534,6 @@ export default function AddBookPage() {
               </button>
             </div>
 
-            {/* 本棚プレビューと完全一致する縦長比率 (aspect-[400/566]) */}
             <div className="relative w-full aspect-[400/566] max-h-[65vh] bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center">
               <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover ${isPreviewMode ? "hidden" : "block"}`}></video>
               <canvas ref={canvasRef} className={`w-full h-full object-cover ${isPreviewMode ? "block" : "hidden"}`}></canvas>
@@ -519,7 +577,7 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* 🔴 プレビューと完全一致する縦長比率のトリミングモーダル */}
+      {/* トリミングモーダル */}
       {isCropOpen && imageUrl && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-sm bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
@@ -532,7 +590,6 @@ export default function AddBookPage() {
 
             <img ref={rawImageRef} src={imageUrl} alt="raw" className="hidden" onLoad={() => { setCropZoom(1); setCropOffsetX(0); setCropOffsetY(0); }} />
 
-            {/* プレビューと同じ縦長比率 (aspect-[400/566]) の操作エリア */}
             <div 
               className="relative w-full aspect-[400/566] max-h-[60vh] bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center touch-none cursor-grab active:cursor-grabbing"
               onPointerDown={(e) => {
@@ -570,7 +627,6 @@ export default function AddBookPage() {
                   }}
                 />
               </div>
-              {/* 縦長の切り取り枠ガイド */}
               <div className="absolute inset-4 border-2 border-dashed border-white/80 pointer-events-none rounded"></div>
             </div>
 
@@ -648,11 +704,8 @@ export default function AddBookPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
-                  <Star className="w-3 h-3 text-amber-500 fill-amber-400" /> お気に入り度
-                </label>
-                <div className="flex items-center gap-1 py-1.5">
-                  {[1, 2, 3, 4, 5].map((star) => (
+                <div className="flex items-center gap-1 py-1.5 pt-6">
+                  {[1, 2, 3].map((star) => (
                     <button
                       key={star}
                       type="button"
@@ -670,7 +723,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* ISBN ＆ 読み取りボタン、自動取得ボタン */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">ISBN</label>
               <div className="flex gap-2 items-center">
@@ -729,7 +781,6 @@ export default function AddBookPage() {
               )}
             </div>
 
-            {/* 📸 画像 ＆ 撮影・トリミングボタン（縦長プレビュー対応） */}
             <div className="pt-2 border-t border-paper-border">
               <label className="block text-xs font-bold text-paper-text-sub mb-1">画像</label>
               <div className="flex items-start gap-4">
@@ -755,22 +806,40 @@ export default function AddBookPage() {
                 )}
 
                 <div className="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    onClick={startCustomCamera}
-                    className="px-4 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Camera className="w-4 h-4" />
-                    <span>撮影する</span>
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={startCustomCamera}
+                      className="px-3 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Camera className="w-4 h-4" />
+                      <span>撮影する</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-2 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Upload className="w-4 h-4 text-paper-caramel" />
+                      <span>ファイル選択</span>
+                    </button>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                  </div>
 
                   {imageUrl && (
                     <button
                       type="button"
                       onClick={() => setIsCropOpen(true)}
-                      className="px-4 py-2 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1.5"
+                      className="px-3 py-1.5 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1.5 w-fit"
                     >
-                      <Crop className="w-4 h-4 text-paper-caramel" />
+                      <Crop className="w-3.5 h-3.5 text-paper-caramel" />
                       <span>トリミング・調整</span>
                     </button>
                   )}
@@ -778,7 +847,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* タイトル ＆ フリガナ */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-paper-border">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">
@@ -806,7 +874,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* サブタイトル ＆ 巻数 */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="md:col-span-3">
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">サブタイトル</label>
@@ -828,7 +895,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 著者名 ＆ 発行所 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1">著者名</label>
@@ -850,7 +916,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 発行月 ＆ シリーズ名 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
@@ -876,7 +941,6 @@ export default function AddBookPage() {
               </div>
             </div>
 
-            {/* 置き場所 */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1">
                 <MapPin className="w-3 h-3 text-paper-caramel" /> 置き場所
@@ -896,7 +960,6 @@ export default function AddBookPage() {
               </datalist>
             </div>
 
-            {/* メモ */}
             <div>
               <label className="block text-xs font-bold text-paper-text-sub mb-1">メモ</label>
               <textarea
@@ -908,16 +971,24 @@ export default function AddBookPage() {
             </div>
           </div>
 
-          {/* 🟢 下部に常時固定する登録・更新ボタン */}
           <div className="fixed bottom-16 left-0 right-0 z-20 bg-paper-card/95 backdrop-blur-md border-t border-paper-border p-3 shadow-lg">
-            <div className="max-w-3xl mx-auto flex justify-end px-3">
+            <div className="max-w-3xl mx-auto flex items-center justify-between px-3 gap-2">
+              <button
+                type="button"
+                onClick={handleSaveToDrafts}
+                className="flex-1 py-3 bg-paper-sub border border-paper-border text-paper-text-main font-bold cursor-pointer shadow-xs hover:bg-paper-border flex items-center justify-center gap-1.5 text-xs rounded"
+              >
+                <ListPlus className="w-4 h-4 text-paper-caramel" />
+                <span>待機リストに一時保存</span>
+              </button>
+
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full md:w-auto px-8 py-3 bg-paper-caramel text-white font-bold cursor-pointer shadow-md hover:opacity-95 flex items-center justify-center gap-2 text-sm disabled:opacity-50 rounded"
+                className="flex-1 py-3 bg-paper-caramel text-white font-bold cursor-pointer shadow-md hover:opacity-95 flex items-center justify-center gap-2 text-sm disabled:opacity-50 rounded"
               >
                 <Save className="w-4 h-4" />
-                <span>{existingBook ? "既存データを更新" : "本を登録"}</span>
+                <span>{existingBook ? "既存データを更新する" : "今すぐ本を登録"}</span>
               </button>
             </div>
           </div>
