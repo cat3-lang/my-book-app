@@ -3,11 +3,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, Camera, Upload, Save, Plus, ScanLine } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, Camera, Save, Plus, ScanLine } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.83";
+const APP_VERSION = "v1.0.84";
 
 type WantBook = {
   id: string;
@@ -43,12 +43,12 @@ export default function WantBookPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [fetching, setFetching] = useState(false);
 
-  // 📸 登録ページと同じバーコードスキャン用のステート＆Ref
+  // バーコードスキャン用
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // 直接カメラ撮影用のinput Ref
+  const directCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const fetchWantBooks = async () => {
     setLoading(true);
@@ -105,7 +105,7 @@ export default function WantBookPage() {
     setErrorMessage("");
   };
 
-  // 📸 画像の圧縮・プレビュー変換
+  // 📸 カメラ撮影・画像圧縮処理（即時プレビュー＆保持）
   const processImageFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = (uploadEvent) => {
@@ -126,7 +126,9 @@ export default function WantBookPage() {
         canvas.height = height;
         const ctx = canvas.getContext("2d");
         ctx?.drawImage(img, 0, 0, width, height);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+        
+        // JPEG形式、画質85%でデータURL化
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
         setForm(prev => ({ ...prev, image_url: dataUrl }));
       };
       img.src = uploadEvent.target?.result as string;
@@ -134,14 +136,11 @@ export default function WantBookPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDirectCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) processImageFile(file);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processImageFile(file);
+    if (file) {
+      processImageFile(file);
+    }
   };
 
   // ISBN自動取得
@@ -174,7 +173,7 @@ export default function WantBookPage() {
     }
   };
 
-  // 🔴 登録ページと同じ安全なカメラバーコードスキャン機能
+  // バーコードスキャン機能（別枠）
   const startScanner = async () => {
     setIsScanning(true);
     setErrorMessage("");
@@ -287,7 +286,7 @@ export default function WantBookPage() {
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-36 relative">
       
-      {/* 🔴 登録ページと同じカメラ読み取りモーダル */}
+      {/* バーコードスキャン用モーダル */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
@@ -384,54 +383,38 @@ export default function WantBookPage() {
                   </div>
                 </div>
 
-                {/* カメラ撮影 / ファイル選択ボタン */}
+                {/* 📸 カメラで直接撮影して即時プレビュー＆保存する専用ボタン */}
                 <div className="bg-paper-inner border border-paper-border p-3 rounded-xs space-y-2">
-                  <span className="block font-bold text-paper-text-main">写真</span>
-                  <div className="flex flex-wrap gap-2">
+                  <span className="block font-bold text-paper-text-main">写真（カメラ撮影）</span>
+                  <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => cameraInputRef.current?.click()}
-                      className="px-3 py-1.5 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1"
+                      onClick={() => directCameraInputRef.current?.click()}
+                      className="px-4 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
                     >
-                      <Camera className="w-3.5 h-3.5" />
-                      <span>カメラで撮影</span>
+                      <Camera className="w-4 h-4" />
+                      <span>カメラで今すぐ撮影する</span>
                     </button>
                     <input
                       type="file"
-                      ref={cameraInputRef}
+                      ref={directCameraInputRef}
                       accept="image/*"
                       capture="environment"
-                      onChange={handleCameraChange}
-                      className="hidden"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="px-3 py-1.5 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      <span>ファイル選択</span>
-                    </button>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      accept="image/*"
-                      onChange={handleFileChange}
+                      onChange={handleDirectCameraChange}
                       className="hidden"
                     />
                   </div>
 
                   {form.image_url && (
-                    <div className="relative w-24 h-24 border border-paper-border overflow-hidden bg-white mt-2">
-                      <img src={form.image_url} alt="プレビュー" className="w-full h-full object-cover" />
+                    <div className="relative w-28 h-28 border border-paper-border overflow-hidden bg-white mt-2 shadow-xs">
+                      <img src={form.image_url} alt="撮影プレビュー" className="w-full h-full object-cover" />
                       <button
                         type="button"
                         onClick={() => setForm({ ...form, image_url: "" })}
-                        className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full cursor-pointer"
+                        className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full cursor-pointer hover:bg-black"
                         title="写真を削除"
                       >
-                        <X className="w-3 h-3" />
+                        <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
