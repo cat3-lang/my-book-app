@@ -8,7 +8,7 @@ import { ArrowLeft, BookOpen, Check, Calendar, Layers, Camera, X, Search, Loader
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.93";
+const APP_VERSION = "v1.0.94";
 
 type ExistingBookInfo = {
   id: string;
@@ -288,10 +288,29 @@ export default function AddBookPage() {
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
 
-    canvas.width = video.videoWidth || 480;
-    canvas.height = video.videoHeight || 640;
+    // 縦長比率（例: 3:4 = 480x640 または本棚カード比率に合わせたサイズ）
+    canvas.width = 400;
+    canvas.height = 566;
     const ctx = canvas.getContext("2d");
-    ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    if (ctx) {
+      // 映像を中央基準で縦長にトリミングしてキャンバスに描き込む
+      const vWidth = video.videoWidth;
+      const vHeight = video.videoHeight;
+      const targetAspect = 400 / 566;
+      let srcW = vWidth;
+      let srcH = vWidth / targetAspect;
+      let srcX = 0;
+      let srcY = (vHeight - srcH) / 2;
+
+      if (srcH > vHeight) {
+        srcH = vHeight;
+        srcW = vHeight * targetAspect;
+        srcX = (vWidth - srcW) / 2;
+        srcY = 0;
+      }
+
+      ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, canvas.width, canvas.height);
+    }
 
     const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
     setImageUrl(dataUrl);
@@ -308,7 +327,7 @@ export default function AddBookPage() {
     startCustomCamera();
   };
 
-  // トリミング適用処理
+  // トリミング適用処理（プレビューと同じ縦長比率 400×566 に切り抜く）
   const applyCrop = () => {
     const img = rawImageRef.current;
     const canvas = cropCanvasRef.current;
@@ -318,7 +337,7 @@ export default function AddBookPage() {
     if (!ctx) return;
 
     canvas.width = 400;
-    canvas.height = 566; // 縦長比率
+    canvas.height = 566; // プレビューと完全に一致する縦長比率
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     ctx.save();
@@ -456,8 +475,8 @@ export default function AddBookPage() {
               </button>
             </div>
 
-            {/* 縦長比率 (3:4 または 9:16) */}
-            <div className="relative w-full aspect-[3/4] bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center">
+            {/* 本棚プレビューと完全一致する縦長比率 (aspect-[400/566]) */}
+            <div className="relative w-full aspect-[400/566] max-h-[65vh] bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center">
               <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover ${isPreviewMode ? "hidden" : "block"}`}></video>
               <canvas ref={canvasRef} className={`w-full h-full object-cover ${isPreviewMode ? "block" : "hidden"}`}></canvas>
             </div>
@@ -500,12 +519,12 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* 🔴 縦長＆自由に動かせるトリミングモーダル */}
+      {/* 🔴 プレビューと完全一致する縦長比率のトリミングモーダル */}
       {isCropOpen && imageUrl && (
         <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-sm bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
             <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold text-paper-text-main">画像を動かして位置調整（トリミング）</h3>
+              <h3 className="text-xs font-bold text-paper-text-main">位置調整・トリミング（縦長比率）</h3>
               <button type="button" onClick={() => setIsCropOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
@@ -513,9 +532,9 @@ export default function AddBookPage() {
 
             <img ref={rawImageRef} src={imageUrl} alt="raw" className="hidden" onLoad={() => { setCropZoom(1); setCropOffsetX(0); setCropOffsetY(0); }} />
 
-            {/* 縦長のトリミング操作エリア（ドラッグ＆スワイプで位置移動可能） */}
+            {/* プレビューと同じ縦長比率 (aspect-[400/566]) の操作エリア */}
             <div 
-              className="relative w-full h-80 bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center touch-none cursor-grab active:cursor-grabbing"
+              className="relative w-full aspect-[400/566] max-h-[60vh] bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center touch-none cursor-grab active:cursor-grabbing"
               onPointerDown={(e) => {
                 dragRef.current = {
                   isDragging: true,
@@ -552,7 +571,7 @@ export default function AddBookPage() {
                 />
               </div>
               {/* 縦長の切り取り枠ガイド */}
-              <div className="absolute inset-x-6 inset-y-4 border-2 border-dashed border-white/80 pointer-events-none rounded"></div>
+              <div className="absolute inset-4 border-2 border-dashed border-white/80 pointer-events-none rounded"></div>
             </div>
 
             <div className="space-y-2 text-xs">
@@ -561,7 +580,7 @@ export default function AddBookPage() {
                 <span className="font-mono">{cropZoom.toFixed(2)}x</span>
               </div>
               <input type="range" min="0.5" max="3" step="0.05" value={cropZoom} onChange={(e) => setCropZoom(parseFloat(e.target.value))} className="w-full accent-paper-caramel" />
-              <p className="text-[10px] text-paper-text-sub text-center">画像を直接指やマウスでドラッグして位置を調整できます</p>
+              <p className="text-[10px] text-paper-text-sub text-center">画像をドラッグして位置を調整できます</p>
             </div>
 
             <canvas ref={cropCanvasRef} className="hidden"></canvas>
@@ -710,12 +729,12 @@ export default function AddBookPage() {
               )}
             </div>
 
-            {/* 📸 画像 ＆ 撮影・トリミングボタン */}
+            {/* 📸 画像 ＆ 撮影・トリミングボタン（縦長プレビュー対応） */}
             <div className="pt-2 border-t border-paper-border">
               <label className="block text-xs font-bold text-paper-text-sub mb-1">画像</label>
               <div className="flex items-start gap-4">
                 {imageUrl ? (
-                  <div className="relative w-24 h-32 border border-paper-border overflow-hidden bg-white shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
+                  <div className="relative w-24 h-[34px] aspect-[400/566] border border-paper-border overflow-hidden bg-white shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
                     <img src={imageUrl} alt="撮影プレビュー" className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
                       <ZoomIn className="w-5 h-5" />
@@ -730,7 +749,7 @@ export default function AddBookPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="w-24 h-32 border border-dashed border-paper-border flex items-center justify-center text-paper-text-sub text-[10px] bg-paper-inner">
+                  <div className="w-24 aspect-[400/566] border border-dashed border-paper-border flex items-center justify-center text-paper-text-sub text-[10px] bg-paper-inner">
                     写真なし
                   </div>
                 )}
@@ -898,7 +917,7 @@ export default function AddBookPage() {
                 className="w-full md:w-auto px-8 py-3 bg-paper-caramel text-white font-bold cursor-pointer shadow-md hover:opacity-95 flex items-center justify-center gap-2 text-sm disabled:opacity-50 rounded"
               >
                 <Save className="w-4 h-4" />
-                <span>{existingBook ? "既存データを更新する" : "本を登録"}</span>
+                <span>{existingBook ? "既存データを更新" : "本を登録"}</span>
               </button>
             </div>
           </div>
