@@ -4,11 +4,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Check, Camera, X, ScanLine, Save, ZoomIn, RefreshCw } from "lucide-react";
+import { ArrowLeft, Check, Camera, X, ScanLine, Save, ZoomIn, RefreshCw, Crop } from "lucide-react";
 import { Html5Qrcode } from "html5-qrcode";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.89";
+const APP_VERSION = "v1.0.90";
 
 type ExistingBookInfo = {
   id: string;
@@ -46,6 +46,14 @@ export default function AddBookPage() {
   // 画像拡大プレビュー用
   const [isZoomOpen, setIsZoomOpen] = useState(false);
 
+  // トリミング編集用モーダル
+  const [isCropOpen, setIsCropOpen] = useState(false);
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropOffsetX, setCropOffsetX] = useState(0);
+  const [cropOffsetY, setCropOffsetY] = useState(0);
+  const rawImageRef = useRef<HTMLImageElement | null>(null);
+  const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
   useEffect(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     setRegisteredDate(todayStr);
@@ -58,14 +66,10 @@ export default function AddBookPage() {
   const [successMessage, setSuccessMessage] = useState("");
   const [checkMessage, setCheckMessage] = useState<string | null>(null);
 
-  // 通信キャンセル（再実行）用のコントローラーRef
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // バーコードスキャン用
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  // カスタムカメラ撮影用
   const [isCustomCameraOpen, setIsCustomCameraOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -90,7 +94,6 @@ export default function AddBookPage() {
     setErrorMessage("");
   };
 
-  // 🔄 自動取得の実行（通信中の再実行・割り込みに対応）
   const handleAutoFetchAndCheck = async (targetIsbn?: string) => {
     const cleanIsbn = (targetIsbn !== undefined ? targetIsbn : isbn).trim();
     if (!cleanIsbn) {
@@ -99,7 +102,6 @@ export default function AddBookPage() {
       return;
     }
 
-    // すでに取得中であれば、前の通信をキャンセルして新しいリクエストを優先する
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -111,7 +113,6 @@ export default function AddBookPage() {
     setCheckMessage(null);
 
     try {
-      // 1. 既存チェック
       const { data: foundData } = await supabase
         .from("books")
         .select("id, isbn, title, sub_title, sort_title, created_at, status, memo, volume, series, authors, publisher, release_date")
@@ -137,7 +138,6 @@ export default function AddBookPage() {
         setCheckMessage("✅ 未登録です");
       }
 
-      // 2. 外部APIから書籍情報を取得（AbortControllerのシグナルを渡す）
       const res = await fetch(`/api/book-fetch?isbn=${cleanIsbn}`, {
         signal: controller.signal,
       });
@@ -150,14 +150,10 @@ export default function AddBookPage() {
         if (data.releaseDate) setReleaseDate(data.releaseDate);
       }
     } catch (err: any) {
-      if (err.name === "AbortError") {
-        console.log("前の自動取得リクエストはキャンセルされました。");
-        return; // キャンセル時はエラー表示を出さない
-      }
+      if (err.name === "AbortError") return;
       console.error(err);
       setErrorMessage("書籍情報の取得に失敗しました。");
     } finally {
-      // 現在のコントローラーが一致している場合のみfetchingを解除
       if (abortControllerRef.current === controller) {
         setFetching(false);
       }
@@ -175,10 +171,7 @@ export default function AddBookPage() {
 
         await html5QrCode.start(
           { facingMode: "environment" },
-          {
-            fps: 10,
-            qrbox: { width: 250, height: 100 },
-          },
+          { fps: 10, qrbox: { width: 250, height: 100 } },
           async (decodedText) => {
             if (decodedText.startsWith("978") || decodedText.startsWith("979")) {
               await stopScanner();
@@ -265,6 +258,30 @@ export default function AddBookPage() {
   const retakePhoto = () => {
     setIsPreviewMode(false);
     startCustomCamera();
+  };
+
+  // トリミング適用
+  const applyCrop = () => {
+    const img = rawImageRef.current;
+    const canvas = cropCanvasRef.current;
+    if (!img || !canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.width = 400;
+    canvas.height = 533; // 3:4比率など
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.save();
+    ctx.translate(canvas.width / 2 + cropOffsetX, canvas.height / 2 + cropOffsetY);
+    ctx.scale(cropZoom, cropZoom);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    ctx.restore();
+
+    const croppedDataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    setImageUrl(croppedDataUrl);
+    setIsCropOpen(false);
   };
 
   useEffect(() => {
@@ -438,7 +455,7 @@ export default function AddBookPage() {
         </div>
       )}
 
-      {/* 写真拡大モーダル */}
+      {/* 写真拡大プレビューモーダル */}
       {isZoomOpen && imageUrl && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4" onClick={() => setIsZoomOpen(false)}>
           <div className="relative max-w-lg w-full bg-paper-card p-2 rounded-lg border border-paper-border space-y-2" onClick={(e) => e.stopPropagation()}>
@@ -450,6 +467,104 @@ export default function AddBookPage() {
             </div>
             <div className="w-full max-h-[70vh] overflow-hidden flex items-center justify-center bg-black">
               <img src={imageUrl} alt="拡大プレビュー" className="max-w-full max-h-[70vh] object-contain" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* トリミング・拡大縮小編集モーダル */}
+      {isCropOpen && imageUrl && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xs font-bold text-paper-text-main">画像を自由に調整（トリミング・拡大縮小）</h3>
+              <button type="button" onClick={() => setIsCropOpen(false)} className="p-1 text-paper-text-sub hover:text-paper-text-main">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 非表示の元画像保持用 */}
+            <img
+              ref={rawImageRef}
+              src={imageUrl}
+              alt="raw"
+              className="hidden"
+              onLoad={() => {
+                setCropZoom(1);
+                setCropOffsetX(0);
+                setCropOffsetY(0);
+              }}
+            />
+
+            <div className="relative w-full h-64 bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center">
+              <div 
+                className="absolute inset-0 flex items-center justify-center overflow-hidden cursor-move"
+                onPointerDown={(e) => {
+                  const startX = e.clientX - cropOffsetX;
+                  const startY = e.clientY - cropOffsetY;
+                  const onPointerMove = (moveEvent: PointerEvent) => {
+                    setCropOffsetX(moveEvent.clientX - startX);
+                    setCropOffsetY(moveEvent.clientY - startY);
+                  };
+                  const onPointerUp = () => {
+                    window.removeEventListener("pointermove", onPointerMove);
+                    window.removeEventListener("pointerup", onPointerUp);
+                  };
+                  window.addEventListener("pointermove", onPointerMove);
+                  window.addEventListener("pointerup", onPointerUp);
+                }}
+              >
+                <img
+                  src={imageUrl}
+                  alt="editing"
+                  style={{
+                    transform: `translate(${cropOffsetX}px, ${cropOffsetY}px) scale(${cropZoom})`,
+                    transition: "transform 0.05s ease-out",
+                    maxHeight: "100%",
+                    maxWidth: "100%",
+                    objectFit: "contain"
+                  }}
+                />
+              </div>
+              {/* 切り取り枠のガイド */}
+              <div className="absolute inset-8 border-2 border-dashed border-white/70 pointer-events-none rounded"></div>
+            </div>
+
+            {/* スライダー操作 */}
+            <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-paper-text-sub">拡大・縮小</span>
+                <span className="font-mono">{cropZoom.toFixed(2)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="3"
+                step="0.05"
+                value={cropZoom}
+                onChange={(e) => setCropZoom(parseFloat(e.target.value))}
+                className="w-full accent-paper-caramel"
+              />
+              <p className="text-[10px] text-paper-text-sub text-center">画像ドラッグで位置調整もできます</p>
+            </div>
+
+            <canvas ref={cropCanvasRef} className="hidden"></canvas>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-paper-border">
+              <button
+                type="button"
+                onClick={() => setIsCropOpen(false)}
+                className="px-4 py-1.5 bg-paper-sub border border-paper-border font-bold text-xs rounded"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={applyCrop}
+                className="px-6 py-1.5 bg-paper-caramel text-white font-bold text-xs rounded shadow-xs"
+              >
+                この大きさに切り抜く
+              </button>
             </div>
           </div>
         </div>
@@ -487,36 +602,36 @@ export default function AddBookPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
 
-          {/* ステータス選択 */}
+          {/* ステータス選択（前回の四角型カードデザイン） */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-2">
             <label className="block font-bold text-paper-text-sub">ステータス</label>
-            <div className="flex gap-4">
-              <label className="flex items-center gap-1.5 cursor-pointer font-bold">
-                <input
-                  type="radio"
-                  name="status"
-                  value="持っている"
-                  checked={status === "持っている"}
-                  onChange={() => setStatus("持っている")}
-                  className="accent-paper-caramel"
-                />
-                <span>持っている本</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer font-bold">
-                <input
-                  type="radio"
-                  name="status"
-                  value="欲しい"
-                  checked={status === "欲しい"}
-                  onChange={() => setStatus("欲しい")}
-                  className="accent-paper-caramel"
-                />
-                <span>欲しい本</span>
-              </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setStatus("持っている")}
+                className={`py-2 px-3 text-center font-bold border transition rounded cursor-pointer ${
+                  status === "持っている"
+                    ? "bg-paper-caramel text-white border-paper-caramel shadow-xs"
+                    : "bg-paper-sub text-paper-text-sub border-paper-border hover:bg-paper-border"
+                }`}
+              >
+                持っている本
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatus("欲しい")}
+                className={`py-2 px-3 text-center font-bold border transition rounded cursor-pointer ${
+                  status === "欲しい"
+                    ? "bg-paper-caramel text-white border-paper-caramel shadow-xs"
+                    : "bg-paper-sub text-paper-text-sub border-paper-border hover:bg-paper-border"
+                }`}
+              >
+                欲しい本
+              </button>
             </div>
           </div>
 
-          {/* ISBN & スキャン */}
+          {/* ISBN & スキャン（右側にスキャン、下に自動取得ボタン） */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-2">
             <label className="block font-bold text-paper-text-sub">ISBN</label>
             <div className="flex gap-2">
@@ -529,19 +644,22 @@ export default function AddBookPage() {
               />
               <button
                 type="button"
-                onClick={() => handleAutoFetchAndCheck()}
-                className="px-3 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main hover:bg-paper-border cursor-pointer flex items-center gap-1 shrink-0"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${fetching ? "animate-spin text-paper-caramel" : ""}`} />
-                <span>{fetching ? "再取得中..." : "自動取得"}</span>
-              </button>
-              <button
-                type="button"
                 onClick={startScanner}
-                className="px-3 py-1.5 bg-paper-caramel text-white font-bold flex items-center gap-1 cursor-pointer hover:opacity-90 shrink-0"
+                className="px-4 py-1.5 bg-paper-caramel text-white font-bold flex items-center gap-1 cursor-pointer hover:opacity-90 shrink-0"
               >
                 <ScanLine className="w-4 h-4" />
                 <span>スキャン</span>
+              </button>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                onClick={() => handleAutoFetchAndCheck()}
+                className="px-4 py-1.5 bg-paper-sub border border-paper-border font-bold text-paper-text-main hover:bg-paper-border cursor-pointer flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${fetching ? "animate-spin text-paper-caramel" : ""}`} />
+                <span>{fetching ? "再取得中..." : "自動取得"}</span>
               </button>
             </div>
 
@@ -552,39 +670,56 @@ export default function AddBookPage() {
             )}
           </div>
 
-          {/* 📸 画像撮影ボタン＆プレビュー */}
+          {/* 📸 画像 ＆ 右側に撮影ボタン */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-2">
             <label className="block font-bold text-paper-text-sub">画像</label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={startCustomCamera}
-                className="px-4 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
-              >
-                <Camera className="w-4 h-4" />
-                <span>撮影する</span>
-              </button>
-            </div>
-
-            {imageUrl && (
-              <div className="relative w-28 h-28 border border-paper-border overflow-hidden bg-white mt-2 shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
-                <img src={imageUrl} alt="撮影プレビュー" className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
-                  <ZoomIn className="w-5 h-5" />
+            <div className="flex items-start gap-4">
+              {imageUrl ? (
+                <div className="relative w-28 h-28 border border-paper-border overflow-hidden bg-white shadow-xs group cursor-pointer" onClick={() => setIsZoomOpen(true)}>
+                  <img src={imageUrl} alt="撮影プレビュー" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
+                    <ZoomIn className="w-5 h-5" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setImageUrl(""); }}
+                    className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full cursor-pointer hover:bg-black"
+                    title="写真を削除"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
+              ) : (
+                <div className="w-28 h-28 border border-dashed border-paper-border flex items-center justify-center text-paper-text-sub text-[10px] bg-paper-inner">
+                  写真なし
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); setImageUrl(""); }}
-                  className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full cursor-pointer hover:bg-black"
-                  title="写真を削除"
+                  onClick={startCustomCamera}
+                  className="px-4 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <Camera className="w-4 h-4" />
+                  <span>撮影する</span>
                 </button>
+
+                {imageUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCropOpen(true)}
+                    className="px-4 py-2 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Crop className="w-4 h-4 text-paper-caramel" />
+                    <span>トリミング・調整</span>
+                  </button>
+                )}
               </div>
-            )}
+            </div>
           </div>
 
-          {/* 各種入力欄 */}
+          {/* 各種入力欄（タイトル、読み、著者など前回と同じ構成） */}
           <div className="bg-paper-card border border-paper-border p-3 space-y-3">
             <div>
               <label className="block font-bold text-paper-text-sub mb-1">タイトル <span className="text-red-500">*</span></label>
@@ -594,6 +729,16 @@ export default function AddBookPage() {
                 onChange={(e) => setTitle(e.target.value)}
                 className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-sm text-paper-text-main"
                 required
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold text-paper-text-sub mb-1">読み</label>
+              <input
+                type="text"
+                value={sortTitle}
+                onChange={(e) => setSortTitle(e.target.value)}
+                className="w-full bg-paper-inner border border-paper-border px-3 py-1.5 text-paper-text-main"
               />
             </div>
 
