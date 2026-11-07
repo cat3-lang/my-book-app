@@ -3,106 +3,27 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, Download, Upload, FileText, Check, AlertCircle, Loader2, Database, LogOut, LogIn } from "lucide-react";
+import { ArrowLeft, Settings, BookOpen, User, Shield, Info, PenTool, PenLine, Pencil, Edit3, Notebook, BookMarked, FileText, StickyNote, Heart, Star, Bookmark, Layers } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.69";
+const APP_VERSION = "v1.1.02";
 
 export default function SettingsPage() {
-  const [loading, setLoading] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [successMessage, setSuccessMessage] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
-  // 🔒 ログイン状態の確認
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        setIsLoggedIn(true);
+      if (!session) {
+        window.location.href = "/login";
       } else {
-        setIsLoggedIn(false);
+        setUserEmail(session.user.email || null);
+        setAuthChecking(false);
       }
-      setAuthChecking(false);
     };
     checkUser();
   }, []);
-
-  const handleLogout = async () => {
-    if (!window.confirm("ログアウトしますか？")) return;
-    await supabase.auth.signOut();
-    window.location.href = "/login";
-  };
-
-  // 📤 バックアップ（エクスポート）機能
-  const handleExport = async () => {
-    setLoading(true);
-    setSuccessMessage("");
-    setErrorMessage("");
-
-    try {
-      const { data, error } = await supabase.from("books").select("*");
-      if (error) throw error;
-
-      const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
-        JSON.stringify(data, null, 2)
-      )}`;
-      const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", jsonString);
-      downloadAnchor.setAttribute("download", `books_backup_${new Date().toISOString().split("T")[0]}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
-
-      setSuccessMessage("バックアップファイルのダウンロードが完了しました！");
-    } catch (err: any) {
-      setErrorMessage("エクスポートに失敗しました: " + (err.message || "不明なエラー"));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 📥 復元（インポート）機能
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!window.confirm("バックアップファイルを読み込んでデータを復元しますか？（既存のデータに上書き・追加されます）")) {
-      e.target.value = "";
-      return;
-    }
-
-    setLoading(true);
-    setSuccessMessage("");
-    setErrorMessage("");
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const content = event.target?.result as string;
-        const importedBooks = JSON.parse(content);
-
-        if (!Array.isArray(importedBooks)) {
-          throw new Error("ファイルの形式が正しくありません。");
-        }
-
-        for (const book of importedBooks) {
-          const { id, created_at, ...bookData } = book;
-          const { error } = await supabase.from("books").insert([bookData]);
-          if (error) console.error("インポートエラー:", error.message);
-        }
-
-        setSuccessMessage("データの復元が完了しました！");
-      } catch (err: any) {
-        setErrorMessage("インポートに失敗しました: " + (err.message || "ファイルの解析に失敗しました"));
-      } finally {
-        setLoading(false);
-        e.target.value = "";
-      }
-    };
-    reader.readAsText(file);
-  };
 
   if (authChecking) {
     return (
@@ -112,122 +33,77 @@ export default function SettingsPage() {
     );
   }
 
+  // テスト用アイコンのリスト（名前とコンポーネント）
+  const testIcons = [
+    { name: "PenLine (おすすめ)", icon: PenLine },
+    { name: "Notebook (ノート)", icon: Notebook },
+    { name: "Pencil (鉛筆)", icon: Pencil },
+    { name: "PenTool", icon: PenTool },
+    { name: "Edit3 (ペン・編集)", icon: Edit3 },
+    { name: "BookMarked (しおり付本)", icon: BookMarked },
+    { name: "FileText (書類・メモ)", icon: FileText },
+    { name: "StickyNote (付箋)", icon: StickyNote },
+    { name: "Heart (ハート)", icon: Heart },
+    { name: "Star (スター)", icon: Star },
+    { name: "Bookmark (ブックマーク)", icon: Bookmark },
+    { name: "Layers (レイヤー)", icon: Layers },
+  ];
+
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-32 relative">
+      <div className="absolute top-1 right-2 z-20 text-[9px] text-paper-text-sub font-mono">
+        {APP_VERSION}
+      </div>
+
       <header className="sticky top-0 z-10 bg-paper-card/95 backdrop-blur-md border-b border-paper-border px-3 py-2.5 md:px-6">
         <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <Link
-            href="/"
-            className="flex items-center gap-1 text-xs font-bold text-paper-text-main bg-paper-sub px-2.5 py-1.5 border border-paper-border hover:bg-paper-border transition"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>本棚へ戻る</span>
-          </Link>
-          <h1 className="text-sm font-bold text-paper-text-main">設定・アカウント</h1>
-          <div className="w-16"></div>
+          <h1 className="text-sm font-bold text-paper-text-main flex items-center gap-1.5">
+            <Settings className="w-4 h-4 text-paper-caramel" /> 設定
+          </h1>
+          <span className="text-xs font-mono text-paper-text-sub">
+            {userEmail || ""}
+          </span>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-3 md:px-6 py-4 space-y-4">
-        {successMessage && (
-          <div className="p-3 bg-green-50 border border-green-200 text-green-800 text-xs flex items-center gap-2">
-            <Check className="w-4 h-4 shrink-0 text-green-600" />
-            <span>{successMessage}</span>
-          </div>
-        )}
-
-        {errorMessage && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-        )}
-
-        {/* アカウント管理セクション */}
-        <div className="bg-paper-card border border-paper-border p-4 space-y-3 shadow-xs">
-          <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider border-b border-paper-border pb-2">
-            アカウント管理
+      <main className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+        {/* 基本設定セクション */}
+        <div className="bg-paper-card border border-paper-border p-4 space-y-4 shadow-xs">
+          <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider flex items-center gap-1.5 border-b border-paper-border pb-2">
+            <Info className="w-3.5 h-3.5 text-paper-caramel" /> アプリ情報
           </h2>
-          <div className="flex items-center justify-between text-xs">
-            <div>
-              <span className="font-bold text-paper-text-main block">現在の状態</span>
-              <span className="text-paper-text-sub">
-                {isLoggedIn ? "家族アカウントでログイン中" : "ログアウト状態です"}
-              </span>
-            </div>
-            {isLoggedIn ? (
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="px-4 py-2 bg-paper-danger text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs hover:opacity-90 transition"
-              >
-                <LogOut className="w-4 h-4" />
-                <span>ログアウト</span>
-              </button>
-            ) : (
-              <Link
-                href="/login"
-                className="px-4 py-2 bg-paper-caramel text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs hover:opacity-90 transition"
-              >
-                <LogIn className="w-4 h-4" />
-                <span>ログイン</span>
-              </Link>
-            )}
+          <div className="text-xs space-y-2 text-paper-text-sub">
+            <p><strong>バージョン:</strong> {APP_VERSION}</p>
+            <p><strong>テーマ:</strong> Paper Style (紙の質感テーマ)</p>
           </div>
         </div>
 
-        {/* データ管理（バックアップ・復元）セクション */}
-        <div className="bg-paper-card border border-paper-border p-4 space-y-3 shadow-xs">
-          <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider border-b border-paper-border pb-2 flex items-center gap-1.5">
-            <Database className="w-4 h-4 text-paper-caramel" />
-            <span>データ管理（バックアップ・復元）</span>
+        {/* 🧪 アイコンテスト用セクション（ご要望のエリア） */}
+        <div className="bg-paper-card border border-paper-border p-4 space-y-4 shadow-xs">
+          <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider flex items-center gap-1.5 border-b border-paper-border pb-2">
+            <Notebook className="w-3.5 h-3.5 text-paper-caramel" /> アイコン見比べテスト用エリア
           </h2>
+          <p className="text-[11px] text-paper-text-sub">
+            「Bookノート」のタブアイコンに使える候補の一覧です。見栄えや雰囲気をここですべて確認できます。
+          </p>
 
-          <div className="space-y-3 text-xs">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <span className="font-bold text-paper-text-main block">データのバックアップ</span>
-                <span className="text-paper-text-sub">登録した本データをファイル（JSON）として保存します。</span>
-              </div>
-              <button
-                type="button"
-                onClick={handleExport}
-                disabled={loading}
-                className="px-3.5 py-2 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main font-bold flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
-              >
-                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4 text-paper-caramel" />}
-                <span>エクスポート</span>
-              </button>
-            </div>
-
-            <div className="pt-3 border-t border-paper-border flex items-center justify-between gap-4">
-              <div>
-                <span className="font-bold text-paper-text-main block">データの復元</span>
-                <span className="text-paper-text-sub">保存したバックアップファイルからデータを読み込みます。</span>
-              </div>
-              <label className="px-3.5 py-2 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main font-bold flex items-center gap-1.5 cursor-pointer shrink-0">
-                <Upload className="w-4 h-4 text-paper-caramel" />
-                <span>インポート</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleImport}
-                  disabled={loading}
-                  className="hidden"
-                />
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {/* アプリ情報セクション */}
-        <div className="bg-paper-card border border-paper-border p-4 space-y-3 shadow-xs">
-          <h2 className="text-xs font-bold text-paper-text-main uppercase tracking-wider border-b border-paper-border pb-2">
-            アプリ情報
-          </h2>
-          <div className="flex justify-between text-xs">
-            <span className="text-paper-text-sub font-bold">バージョン</span>
-            <span className="font-mono text-paper-text-main">{APP_VERSION}</span>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 pt-2">
+            {testIcons.map((item, index) => {
+              const IconComponent = item.icon;
+              return (
+                <div
+                  key={index}
+                  className="bg-paper-inner border border-paper-border p-3 flex flex-col items-center justify-center gap-2 rounded hover:bg-paper-sub transition shadow-2xs"
+                >
+                  <div className="p-2 bg-paper-card border border-paper-border rounded-full text-paper-caramel">
+                    <IconComponent className="w-6 h-6" />
+                  </div>
+                  <span className="text-[11px] font-bold text-paper-text-main text-center font-mono">
+                    {item.name}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </main>
