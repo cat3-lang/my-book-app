@@ -3,10 +3,10 @@
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown, ArrowUpDown, MapPin } from "lucide-react";
+import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown, ArrowUpDown, MapPin, ZoomIn, X } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.67";
+const APP_VERSION = "v1.0.68";
 
 type Book = {
   id: string;
@@ -24,6 +24,7 @@ type Book = {
   created_at: string;
   rating?: number | null;
   location?: string | null;
+  image_url?: string | null;
 };
 
 type GroupedBook = {
@@ -67,6 +68,9 @@ export default function HomePage() {
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Book>>({});
 
+  // 🔍 画像大きくポップアッププレビュー用の状態
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
   // 🔒 未ログイン時にログイン画面へ飛ばす処理
   useEffect(() => {
     const checkUser = async () => {
@@ -109,7 +113,6 @@ export default function HomePage() {
     );
   }
 
-  // 既存の本から登録されている「置き場所」の選択肢リストを自動生成
   const existingLocations = Array.from(new Set(books.map(b => b.location).filter(Boolean))) as string[];
 
   const handleDelete = async (id: string, title: string, volume: string | null) => {
@@ -641,48 +644,41 @@ export default function HomePage() {
                                         </div>
                                       </div>
 
-                                      <div className="grid grid-cols-2 gap-2 items-center pt-1 border-t border-paper-border/50">
-                                        <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">シリーズ</span>
-                                          <span className="text-paper-text-main text-xs block">
-                                            {book.series || "ー"}
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">置き場所</span>
-                                          <span className="text-paper-text-main font-semibold text-xs block flex items-center gap-1">
-                                            <MapPin className="w-3 h-3 text-paper-caramel" />
-                                            {book.location || "未設定"}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      {book.memo && (
-                                        <div className="pt-1 border-t border-paper-border/50">
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">メモ</span>
-                                          <p className="bg-paper-card p-1.5 border border-paper-border text-paper-text-body break-words">
-                                            {book.memo}
-                                          </p>
-                                        </div>
-                                      )}
-
+                                      {/* 🟢 削除・プレビュー・編集ボタンの並び */}
                                       <div className="flex items-center justify-between pt-2 border-t border-paper-border">
                                         <button
                                           type="button"
                                           onClick={(e) => handleDelete(book.id, book.title, book.volume)}
-                                          className="px-2.5 py-1 bg-paper-danger text-white text-xs flex items-center gap-1 font-bold cursor-pointer"
+                                          className="px-2.5 py-1 bg-paper-danger text-white text-xs flex items-center gap-1 font-bold cursor-pointer rounded"
                                         >
                                           <Trash2 className="w-3.5 h-3.5" />
                                           <span>削除</span>
                                         </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => startEditing(book, e)}
-                                          className="px-3 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main text-xs font-bold flex items-center gap-1 cursor-pointer"
-                                        >
-                                          <Edit3 className="w-3.5 h-3.5 text-paper-caramel" />
-                                          <span>編集</span>
-                                        </button>
+
+                                        <div className="flex items-center gap-2">
+                                          {book.image_url && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setPreviewImageUrl(book.image_url ?? null);
+                                              }}
+                                              className="px-3 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main text-xs font-bold flex items-center gap-1 cursor-pointer rounded"
+                                            >
+                                              <ZoomIn className="w-3.5 h-3.5 text-paper-caramel" />
+                                              <span>プレビュー</span>
+                                            </button>
+                                          )}
+
+                                          <button
+                                            type="button"
+                                            onClick={(e) => startEditing(book, e)}
+                                            className="px-3 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main text-xs font-bold flex items-center gap-1 cursor-pointer rounded"
+                                          >
+                                            <Edit3 className="w-3.5 h-3.5 text-paper-caramel" />
+                                            <span>編集</span>
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>
                                   )}
@@ -700,6 +696,38 @@ export default function HomePage() {
           </div>
         )}
       </main>
+
+      {/* 🖼️ 画像を大きくポップアップするプレビューモーダル */}
+      {previewImageUrl && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out" 
+          onClick={() => setPreviewImageUrl(null)}
+        >
+          <div 
+            className="relative max-w-xl w-full bg-paper-card p-3 rounded-lg border border-paper-border space-y-2 shadow-2xl" 
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center px-1">
+              <h3 className="text-xs font-bold text-paper-text-main">表紙画像プレビュー</h3>
+              <button 
+                type="button" 
+                onClick={() => setPreviewImageUrl(null)} 
+                className="p-1 text-paper-text-sub hover:text-paper-text-main cursor-pointer bg-paper-sub rounded-full"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="w-full max-h-[75vh] overflow-hidden flex items-center justify-center bg-black rounded">
+              <img 
+                src={previewImageUrl} 
+                alt="全画面プレビュー" 
+                className="max-w-full max-h-[75vh] object-contain" 
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <FooterNav />
     </div>
