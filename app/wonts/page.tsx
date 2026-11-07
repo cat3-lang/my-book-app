@@ -3,11 +3,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, Camera, Save, Plus, ScanLine } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Trash2, Edit3, User, ImageIcon, X, Camera, Save, Plus, ScanLine, RefreshCcw } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 import { Html5Qrcode } from "html5-qrcode";
 
-const APP_VERSION = "v1.0.84";
+const APP_VERSION = "v1.0.85";
 
 type WantBook = {
   id: string;
@@ -47,8 +47,12 @@ export default function WantBookPage() {
   const [isScanning, setIsScanning] = useState(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
 
-  // 直接カメラ撮影用のinput Ref
-  const directCameraInputRef = useRef<HTMLInputElement | null>(null);
+  // 📸 カスタムカメラ撮影用モーダル＆Ref
+  const [isCustomCameraOpen, setIsCustomCameraOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
 
   const fetchWantBooks = async () => {
     setLoading(true);
@@ -68,6 +72,7 @@ export default function WantBookPage() {
     fetchWantBooks();
     return () => {
       stopScanner();
+      stopCustomCamera();
     };
   }, []);
 
@@ -105,42 +110,65 @@ export default function WantBookPage() {
     setErrorMessage("");
   };
 
-  // 📸 カメラ撮影・画像圧縮処理（即時プレビュー＆保持）
-  const processImageFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (uploadEvent) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 800;
-        if (width > height && width > maxDim) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
-        } else if (height >= width && height > maxDim) {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
+  // 📸 カスタムカメラの起動
+  const startCustomCamera = async () => {
+    setIsCustomCameraOpen(true);
+    setIsPreviewMode(false);
+    setErrorMessage("");
+    setTimeout(async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        mediaStreamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
         }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx?.drawImage(img, 0, 0, width, height);
-        
-        // JPEG形式、画質85%でデータURL化
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
-        setForm(prev => ({ ...prev, image_url: dataUrl }));
-      };
-      img.src = uploadEvent.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+      } catch (err) {
+        console.error("Camera start error:", err);
+        setErrorMessage("カメラを起動できませんでした。権限を確認してください。");
+        setIsCustomCameraOpen(false);
+      }
+    }, 100);
   };
 
-  const handleDirectCameraChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processImageFile(file);
+  // 🛑 カスタムカメラの停止
+  const stopCustomCamera = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
     }
+    setIsCustomCameraOpen(false);
+    setIsPreviewMode(false);
+  };
+
+  // 📷 シャッターを切る
+  const takePhoto = () => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas) return;
+
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    setForm(prev => ({ ...prev, image_url: dataUrl }));
+    setIsPreviewMode(true);
+
+    // カメラのストリームを止める
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach(track => track.stop());
+      mediaStreamRef.current = null;
+    }
+  };
+
+  // 🔄 撮り直す
+  const retakePhoto = () => {
+    setIsPreviewMode(false);
+    startCustomCamera();
   };
 
   // ISBN自動取得
@@ -173,7 +201,7 @@ export default function WantBookPage() {
     }
   };
 
-  // バーコードスキャン機能（別枠）
+  // バーコードスキャン機能
   const startScanner = async () => {
     setIsScanning(true);
     setErrorMessage("");
@@ -199,7 +227,7 @@ export default function WantBookPage() {
         );
       } catch (err) {
         console.error("Camera start error:", err);
-        setErrorMessage("カメラを起動できませんでした。権限が許可されているか確認してください。");
+        setErrorMessage("バーコードカメラを起動できませんでした。");
         setIsScanning(false);
       }
     }, 100);
@@ -286,6 +314,73 @@ export default function WantBookPage() {
   return (
     <div className="min-h-screen bg-paper-bg text-paper-text-body font-sans pb-36 relative">
       
+      {/* 🔴 カスタムカメラ撮影モーダル */}
+      {isCustomCameraOpen && (
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md bg-paper-card border border-paper-border p-4 rounded-lg relative space-y-3">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xs font-bold text-paper-text-main">
+                {isPreviewMode ? "撮影プレビュー" : "カメラで撮影"}
+              </h2>
+              <button
+                type="button"
+                onClick={stopCustomCamera}
+                className="p-1 text-paper-text-sub hover:text-paper-text-main bg-paper-sub rounded-full cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* カメラ映像 / プレビュー用の枠 */}
+            <div className="relative w-full aspect-[4/3] bg-black rounded overflow-hidden border border-paper-border flex items-center justify-center">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className={`w-full h-full object-cover ${isPreviewMode ? "hidden" : "block"}`}
+              ></video>
+              <canvas
+                ref={canvasRef}
+                className={`w-full h-full object-cover ${isPreviewMode ? "block" : "hidden"}`}
+              ></canvas>
+            </div>
+
+            {/* 操作ボタン */}
+            <div className="flex justify-center gap-3 pt-2">
+              {!isPreviewMode ? (
+                <button
+                  type="button"
+                  onClick={takePhoto}
+                  className="px-6 py-2.5 bg-paper-caramel text-white font-bold text-xs rounded-full shadow-md hover:opacity-90 cursor-pointer flex items-center gap-1.5"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>シャッターを切る</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={retakePhoto}
+                    className="px-4 py-2 bg-paper-sub border border-paper-border text-paper-text-main font-bold text-xs rounded shadow-xs hover:bg-paper-border cursor-pointer flex items-center gap-1"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" />
+                    <span>撮り直す</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopCustomCamera}
+                    className="px-6 py-2 bg-emerald-600 text-white font-bold text-xs rounded shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>この写真を使う</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* バーコードスキャン用モーダル */}
       {isScanning && (
         <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
@@ -383,26 +478,18 @@ export default function WantBookPage() {
                   </div>
                 </div>
 
-                {/* 📸 カメラで直接撮影して即時プレビュー＆保存する専用ボタン */}
+                {/* 📸 カスタムカメラ撮影ボタン */}
                 <div className="bg-paper-inner border border-paper-border p-3 rounded-xs space-y-2">
-                  <span className="block font-bold text-paper-text-main">写真（カメラ撮影）</span>
+                  <span className="block font-bold text-paper-text-main">写真（カスタムカメラ枠）</span>
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => directCameraInputRef.current?.click()}
+                      onClick={startCustomCamera}
                       className="px-4 py-2 bg-paper-caramel text-white font-bold text-xs shadow-xs hover:opacity-90 cursor-pointer flex items-center gap-1.5"
                     >
                       <Camera className="w-4 h-4" />
-                      <span>カメラで今すぐ撮影する</span>
+                      <span>カメラ枠を開いて撮影する</span>
                     </button>
-                    <input
-                      type="file"
-                      ref={directCameraInputRef}
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handleDirectCameraChange}
-                      className="hidden"
-                    />
                   </div>
 
                   {form.image_url && (
