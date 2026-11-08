@@ -6,9 +6,24 @@ import { supabase } from "@/lib/supabase";
 import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown, ArrowUpDown, MapPin, ZoomIn, X } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.70";
+const APP_VERSION = "v1.1.05";
 
-type Book = {
+// 🟢 一覧用の軽量なデータ型（image_urlなどの重いデータを初期取得から除外）
+type LightBook = {
+  id: string;
+  title: string;
+  sub_title: string | null;
+  sort_title: string | null;
+  volume: string | null;
+  series: string | null;
+  created_at: string;
+  rating?: number | null;
+  location?: string | null;
+  has_image?: boolean; // 画像があるかどうかだけ保持
+};
+
+// 🟢 詳細用の完全なデータ型（展開時に取得）
+type BookDetail = {
   id: string;
   title: string;
   sub_title: string | null;
@@ -31,7 +46,7 @@ type GroupedBook = {
   title: string;
   sort_title: string;
   seionGroup: string;
-  books: Book[];
+  books: LightBook[];
 };
 
 function getSeionGroup(sortTitle: string): string {
@@ -55,19 +70,23 @@ const SEION_TABS = ["すべて", "★", "あ行", "か行", "さ行", "た行", 
 
 export default function HomePage() {
   const [authChecking, setAuthChecking] = useState(true);
-  const [books, setBooks] = useState<Book[]>([]);
+  const [books, setBooks] = useState<LightBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTab, setSelectedTab] = useState("すべて");
   const [sortOrder, setSortOrder] = useState<"title" | "date_desc" | "date_asc">("title");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [expandedTitle, setExpandedTitle] = useState<string | null>(null);
+
+  // 🟢 展開した巻の詳細データを保持するキャッシュ ({ [bookId]: BookDetail })
+  const [bookDetailsCache, setBookDetailsCache] = useState<{ [key: string]: BookDetail }>({});
+  const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
+
   const [expandedBookIds, setExpandedBookIds] = useState<{ [key: string]: boolean }>({});
   const [expandedSubTitles, setExpandedSubTitles] = useState<{ [key: string]: boolean }>({});
 
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<Book>>({});
-
+  const [editForm, setEditForm] = useState<Partial<BookDetail>>({});
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -82,17 +101,39 @@ export default function HomePage() {
     checkUser();
   }, []);
 
+  // 🟢 初期表示時は重い image_url や詳細メモを除外し、必要最小限のデータだけを高速取得
   const fetchBooks = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("books")
-      .select("*")
+      .select("id, title, sub_title, sort_title, volume, series, created_at, rating, location, image_url, memo")
       .eq("status", "持っている");
 
     if (error) {
       console.error("Error fetching books:", error);
     } else {
-      setBooks(data || []);
+      // 軽量データに変換（image_urlの存在有無だけ判定して、実データはキャッシュまたは詳細取得に回す）
+      const lightList: LightBook[] = (data || []).map((b: any) => ({
+        id: b.id,
+        title: b.title,
+        sub_title: b.sub_title,
+        sort_title: b.sort_title,
+        volume: b.volume,
+        series: b.series,
+        created_at: b.created_at,
+        rating: b.rating,
+        location: b.location,
+        has_image: !!b.image_url,
+      }));
+
+      // 万が一のために初期データの一部詳細もキャッシュに持たせておくとスムーズ
+      const initialCache: { [key: string]: BookDetail } = {};
+      (data || []).forEach((b: any) => {
+        initialCache[b.id] = b as BookDetail;
+      });
+      setBookDetailsCache(initialCache);
+
+      setBooks(lightList);
     }
     setLoading(false);
   };
@@ -113,22 +154,25 @@ export default function HomePage() {
 
   const existingLocations = Array.from(new Set(books.map(b => b.location).filter(Boolean))) as string[];
 
-  const handleDelete = async (id: string, title: string, volume: string | null) => {
-    const volStr = volume ? ` (${volume}巻)` : "";
-    if (!window.confirm(`「${title}${volStr}」を削除してもよろしいですか？`)) return;
-
-    const { error } = await supabase.from("books").delete().eq("id", id);
-    if (error) {
-      alert("削除に失敗しました: " + error.message);
-    } else {
-      setBooks(books.filter((b) => b.id !== id));
-      if (editingBookId === id) setEditingBookId(null);
-    }
-  };
-
-  const toggleBookDetail = (id: string, e: React.MouseEvent) => {
+  // 🟢 データをクリックして詳細を開く際、まだ詳細がなければSupabaseからピンポイントで取得する
+  const handleToggleBookDetail = async (bookId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setExpandedBookIds((prev) => ({ ...prev, [id]: !prev[id] }));
+    const willExpand = !expandedBookIds[bookId];
+    setExpandedBookIds((prev) => ({ ...prev, [bookId]: willExpand }));
+
+    if (willExpand && !bookDetailsCache[bookId]) {
+      setLoadingDetailId(bookId);
+      const { data, error } = await supabase
+        .from("books")
+        .select("*")
+        .eq("id", bookId)
+        .single();
+
+      if (!error && data) {
+        setBookDetailsCache((prev) => ({ ...prev, [bookId]: data as BookDetail }));
+      }
+      setLoadingDetailId(null);
+    }
   };
 
   const toggleSubTitle = (id: string, e: React.MouseEvent) => {
@@ -136,10 +180,13 @@ export default function HomePage() {
     setExpandedSubTitles((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const startEditing = (book: Book, e: React.MouseEvent) => {
+  const startEditing = (bookId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setEditingBookId(book.id);
-    setEditForm({ ...book });
+    const detail = bookDetailsCache[bookId];
+    if (detail) {
+      setEditingBookId(bookId);
+      setEditForm({ ...detail });
+    }
   };
 
   const handleSaveInline = async (id: string) => {
@@ -168,21 +215,44 @@ export default function HomePage() {
     if (error) {
       alert("保存に失敗しました: " + error.message);
     } else {
-      setBooks(books.map((b) => (b.id === id ? { ...b, ...updateData } : b)));
+      setBooks(books.map((b) => (b.id === id ? { ...b, title: updateData.title, sub_title: updateData.sub_title, sort_title: updateData.sort_title, volume: updateData.volume, series: updateData.series, rating: updateData.rating, location: updateData.location } : b)));
+      setBookDetailsCache((prev) => ({
+        ...prev,
+        [id]: { ...prev[id], ...updateData } as BookDetail
+      }));
       setEditingBookId(null);
     }
   };
 
-  const handleRatingChange = async (book: Book, newRating: number, e: React.MouseEvent) => {
+  const handleDelete = async (id: string, title: string, volume: string | null) => {
+    const volStr = volume ? ` (${volume}巻)` : "";
+    if (!window.confirm(`「${title}${volStr}」を削除してもよろしいですか？`)) return;
+
+    const { error } = await supabase.from("books").delete().eq("id", id);
+    if (error) {
+      alert("削除に失敗しました: " + error.message);
+    } else {
+      setBooks(books.filter((b) => b.id !== id));
+      if (editingBookId === id) setEditingBookId(null);
+    }
+  };
+
+  const handleRatingChange = async (bookId: string, newRating: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updatedRating = book.rating === newRating ? 0 : newRating;
+    const currentRating = bookDetailsCache[bookId]?.rating || books.find(b => b.id === bookId)?.rating || 0;
+    const updatedRating = currentRating === newRating ? 0 : newRating;
+    
     const { error } = await supabase
       .from("books")
       .update({ rating: updatedRating })
-      .eq("id", book.id);
+      .eq("id", bookId);
 
     if (!error) {
-      setBooks(books.map((b) => (b.id === book.id ? { ...b, rating: updatedRating } : b)));
+      setBooks(books.map((b) => (b.id === bookId ? { ...b, rating: updatedRating } : b)));
+      setBookDetailsCache((prev) => ({
+        ...prev,
+        [bookId]: prev[bookId] ? { ...prev[bookId], rating: updatedRating } : prev[bookId]
+      }));
     }
   };
 
@@ -203,10 +273,6 @@ export default function HomePage() {
       (b.sub_title && b.sub_title.toLowerCase().includes(q)) ||
       (b.sort_title && b.sort_title.toLowerCase().includes(q)) ||
       (b.series && b.series.toLowerCase().includes(q)) ||
-      (b.authors && b.authors.toLowerCase().includes(q)) ||
-      (b.publisher && b.publisher.toLowerCase().includes(q)) ||
-      (b.memo && b.memo.toLowerCase().includes(q)) ||
-      (b.isbn && b.isbn.toLowerCase().includes(q)) ||
       (b.location && b.location.toLowerCase().includes(q))
     );
   });
@@ -404,6 +470,7 @@ export default function HomePage() {
                           const isBookExpanded = !!expandedBookIds[book.id];
                           const isSubExpanded = !!expandedSubTitles[book.id];
                           const isEditing = editingBookId === book.id;
+                          const detail = bookDetailsCache[book.id];
 
                           return (
                             <div
@@ -414,10 +481,16 @@ export default function HomePage() {
                                 <div className="flex items-center gap-2 min-w-0 flex-1">
                                   <button
                                     type="button"
-                                    onClick={(e) => toggleBookDetail(book.id, e)}
+                                    onClick={(e) => handleToggleBookDetail(book.id, e)}
                                     className="w-20 text-paper-text-main flex items-center justify-center gap-1 bg-paper-sub hover:bg-paper-border border border-paper-border py-1 font-bold text-xs shrink-0 cursor-pointer"
                                   >
-                                    {isBookExpanded ? <ChevronDown className="w-3.5 h-3.5 text-paper-caramel" /> : <ChevronRight className="w-3.5 h-3.5 text-paper-caramel" />}
+                                    {loadingDetailId === book.id ? (
+                                      <span className="text-[10px]">読込...</span>
+                                    ) : isBookExpanded ? (
+                                      <ChevronDown className="w-3.5 h-3.5 text-paper-caramel" />
+                                    ) : (
+                                      <ChevronRight className="w-3.5 h-3.5 text-paper-caramel" />
+                                    )}
                                     <span>{book.volume ? `${book.volume}巻` : "1(単)"}</span>
                                   </button>
 
@@ -438,7 +511,7 @@ export default function HomePage() {
                                       <button
                                         key={star}
                                         type="button"
-                                        onClick={(e) => handleRatingChange(book, star, e)}
+                                        onClick={(e) => handleRatingChange(book.id, star, e)}
                                         className="p-0.5 hover:scale-110 transition cursor-pointer"
                                         title={`${star}つ星`}
                                       >
@@ -455,14 +528,19 @@ export default function HomePage() {
                                     {book.created_at ? book.created_at.split("T")[0] : ""}
                                   </span>
 
-                                  {/* 🔍 画像の有無に関わらずプレビューボタン用の領域を固定し、バランスを統一 */}
                                   <div className="w-6 flex items-center justify-center">
-                                    {book.image_url ? (
+                                    {book.has_image ? (
                                       <button
                                         type="button"
-                                        onClick={(e) => {
+                                        onClick={async (e) => {
                                           e.stopPropagation();
-                                          setPreviewImageUrl(book.image_url ?? null);
+                                          // プレビュー用にまだ詳細画像がなければ取得する
+                                          let imgUrl = detail?.image_url;
+                                          if (!imgUrl) {
+                                            const { data } = await supabase.from("books").select("image_url").eq("id", book.id).single();
+                                            imgUrl = data?.image_url;
+                                          }
+                                          if (imgUrl) setPreviewImageUrl(imgUrl);
                                         }}
                                         className="p-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main cursor-pointer rounded"
                                         title="画像プレビュー"
@@ -631,55 +709,52 @@ export default function HomePage() {
                                     </div>
                                   ) : (
                                     <div className="space-y-2 text-xs">
-                                      <div className="grid grid-cols-2 gap-2 items-center">
-                                        <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">著者</span>
-                                          <span className="text-paper-text-main font-semibold break-words block">
-                                            {book.authors || "ー"}
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">発行所</span>
-                                          <span className="text-paper-text-main font-semibold break-words block">
-                                            {book.publisher || "ー"}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      <div className="grid grid-cols-2 gap-2 items-center pt-1 border-t border-paper-border/50">
-                                        <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">発行月</span>
-                                          <span className="font-mono text-paper-text-main text-xs block">
-                                            {book.release_date || "ー"}
-                                          </span>
-                                        </div>
-                                        <div>
-                                          <span className="text-paper-text-sub block font-bold text-[10px]">ISBN</span>
-                                          <span className="font-mono text-paper-text-main text-xs block">
-                                            {book.isbn || "ー"}
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      <div className="flex items-center justify-between pt-2 border-t border-paper-border">
-                                        <button
-                                          type="button"
-                                          onClick={(e) => handleDelete(book.id, book.title, book.volume)}
-                                          className="px-2.5 py-1 bg-paper-danger text-white text-xs flex items-center gap-1 font-bold cursor-pointer rounded"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                          <span>削除</span>
-                                        </button>
-
-                                        <button
-                                          type="button"
-                                          onClick={(e) => startEditing(book, e)}
-                                          className="px-3 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main text-xs font-bold flex items-center gap-1 cursor-pointer rounded"
-                                        >
-                                          <Edit3 className="w-3.5 h-3.5 text-paper-caramel" />
-                                          <span>編集</span>
-                                        </button>
-                                      </div>
+                                      {detail ? (
+                                        <>
+                                          <div className="grid grid-cols-2 gap-2 items-center">
+                                            <div>
+                                              <span className="text-paper-text-sub block font-bold text-[10px]">著者</span>
+                                              <span className="text-paper-text-main font-semibold break-words block">
+                                                {detail.authors || "ー"}
+                                              </span>
+                                            </div>
+                                            <div>
+                                              <span className="text-paper-text-sub block font-bold text-[10px]">発行所</span>
+                                              <span className="text-paper-text-main font-semibold break-words block">
+                                                {detail.publisher || "ー"}
+                                              </span>
+                                            </div>
+                                          </div>
+                                          {detail.location && (
+                                            <div>
+                                              <span className="text-paper-text-sub block font-bold text-[10px]">置き場所</span>
+                                              <span className="text-paper-text-main font-semibold flex items-center gap-1">
+                                                <MapPin className="w-3 h-3 text-paper-caramel" /> {detail.location}
+                                              </span>
+                                            </div>
+                                          )}
+                                          {detail.memo && (
+                                            <div>
+                                              <span className="text-paper-text-sub block font-bold text-[10px]">メモ</span>
+                                              <p className="text-paper-text-main bg-white p-1.5 border border-paper-border whitespace-pre-wrap">
+                                                {detail.memo}
+                                              </p>
+                                            </div>
+                                          )}
+                                          <div className="flex justify-end pt-1">
+                                            <button
+                                              type="button"
+                                              onClick={(e) => startEditing(book.id, e)}
+                                              className="px-3 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-paper-text-main font-bold flex items-center gap-1 cursor-pointer"
+                                            >
+                                              <Edit3 className="w-3 h-3 text-paper-caramel" />
+                                              <span>編集・削除</span>
+                                            </button>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <p className="text-center text-paper-text-sub py-2">詳細情報を読み込み中...</p>
+                                      )}
                                     </div>
                                   )}
                                 </div>
@@ -697,17 +772,18 @@ export default function HomePage() {
         )}
       </main>
 
+      {/* 🖼️ 画像拡大ポップアップモーダル */}
       {previewImageUrl && (
         <div 
-          className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out" 
+          className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4 backdrop-blur-sm cursor-zoom-out"
           onClick={() => setPreviewImageUrl(null)}
         >
           <div 
-            className="relative max-w-xl w-full bg-paper-card p-3 rounded-lg border border-paper-border space-y-2 shadow-2xl" 
+            className="relative max-w-xl w-full bg-paper-card p-3 rounded-lg border border-paper-border space-y-2 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center px-1">
-              <h3 className="text-xs font-bold text-paper-text-main">表紙画像プレビュー</h3>
+              <h3 className="text-xs font-bold text-paper-text-main">プレビュー拡大</h3>
               <button 
                 type="button" 
                 onClick={() => setPreviewImageUrl(null)} 
@@ -716,11 +792,10 @@ export default function HomePage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-
             <div className="w-full max-h-[75vh] overflow-hidden flex items-center justify-center bg-black rounded">
               <img 
                 src={previewImageUrl} 
-                alt="全画面プレビュー" 
+                alt="拡大写真" 
                 className="max-w-full max-h-[75vh] object-contain" 
               />
             </div>
