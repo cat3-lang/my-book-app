@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Download, Upload, FileText, Check, AlertCircle, Loader2, Database, LogOut, LogIn } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.0.69";
+const APP_VERSION = "v1.1.1";
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
