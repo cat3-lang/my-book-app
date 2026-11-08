@@ -6,9 +6,9 @@ import { supabase } from "@/lib/supabase";
 import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown, ArrowUpDown, MapPin, ZoomIn, X } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.1.05";
+const APP_VERSION = "v1.1.06";
 
-// 🟢 一覧用の軽量なデータ型（image_urlなどの重いデータを初期取得から除外）
+// 一覧用の超軽量データ型
 type LightBook = {
   id: string;
   title: string;
@@ -19,10 +19,10 @@ type LightBook = {
   created_at: string;
   rating?: number | null;
   location?: string | null;
-  has_image?: boolean; // 画像があるかどうかだけ保持
+  has_image?: boolean;
 };
 
-// 🟢 詳細用の完全なデータ型（展開時に取得）
+// 詳細を開いたときに取得する完全なデータ型
 type BookDetail = {
   id: string;
   title: string;
@@ -78,7 +78,7 @@ export default function HomePage() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [expandedTitle, setExpandedTitle] = useState<string | null>(null);
 
-  // 🟢 展開した巻の詳細データを保持するキャッシュ ({ [bookId]: BookDetail })
+  // 詳細キャッシュ & ローディング管理
   const [bookDetailsCache, setBookDetailsCache] = useState<{ [key: string]: BookDetail }>({});
   const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
 
@@ -101,18 +101,17 @@ export default function HomePage() {
     checkUser();
   }, []);
 
-  // 🟢 初期表示時は重い image_url や詳細メモを除外し、必要最小限のデータだけを高速取得
+  // 🟢 初期表示：重い画像やメモを省いて、必要最小限の列だけを一瞬で高速取得
   const fetchBooks = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("books")
-      .select("id, title, sub_title, sort_title, volume, series, created_at, rating, location, image_url, memo")
+      .select("id, title, sub_title, sort_title, volume, series, created_at, rating, location, image_url")
       .eq("status", "持っている");
 
     if (error) {
       console.error("Error fetching books:", error);
     } else {
-      // 軽量データに変換（image_urlの存在有無だけ判定して、実データはキャッシュまたは詳細取得に回す）
       const lightList: LightBook[] = (data || []).map((b: any) => ({
         id: b.id,
         title: b.title,
@@ -126,7 +125,7 @@ export default function HomePage() {
         has_image: !!b.image_url,
       }));
 
-      // 万が一のために初期データの一部詳細もキャッシュに持たせておくとスムーズ
+      // 初回データをキャッシュにも保持
       const initialCache: { [key: string]: BookDetail } = {};
       (data || []).forEach((b: any) => {
         initialCache[b.id] = b as BookDetail;
@@ -154,13 +153,13 @@ export default function HomePage() {
 
   const existingLocations = Array.from(new Set(books.map(b => b.location).filter(Boolean))) as string[];
 
-  // 🟢 データをクリックして詳細を開く際、まだ詳細がなければSupabaseからピンポイントで取得する
+  // 🟢 巻を開いたときだけ、詳細データを取得（遅延読み込み）
   const handleToggleBookDetail = async (bookId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const willExpand = !expandedBookIds[bookId];
     setExpandedBookIds((prev) => ({ ...prev, [bookId]: willExpand }));
 
-    if (willExpand && !bookDetailsCache[bookId]) {
+    if (willExpand && !bookDetailsCache[bookId]?.memo) {
       setLoadingDetailId(bookId);
       const { data, error } = await supabase
         .from("books")
@@ -534,7 +533,6 @@ export default function HomePage() {
                                         type="button"
                                         onClick={async (e) => {
                                           e.stopPropagation();
-                                          // プレビュー用にまだ詳細画像がなければ取得する
                                           let imgUrl = detail?.image_url;
                                           if (!imgUrl) {
                                             const { data } = await supabase.from("books").select("image_url").eq("id", book.id).single();
