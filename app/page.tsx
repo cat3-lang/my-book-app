@@ -6,9 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { Search, ChevronRight, ChevronDown, Trash2, BookOpen, Edit3, Star, ArrowUp, ArrowDown, ArrowUpDown, MapPin, ZoomIn, X } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.1.06";
+const APP_VERSION = "v1.1.08";
 
-// 一覧用の超軽量データ型
 type LightBook = {
   id: string;
   title: string;
@@ -22,7 +21,6 @@ type LightBook = {
   has_image?: boolean;
 };
 
-// 詳細を開いたときに取得する完全なデータ型
 type BookDetail = {
   id: string;
   title: string;
@@ -78,7 +76,7 @@ export default function HomePage() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [expandedTitle, setExpandedTitle] = useState<string | null>(null);
 
-  // 詳細キャッシュ & ローディング管理
+  // 詳細キャッシュ & ローディング
   const [bookDetailsCache, setBookDetailsCache] = useState<{ [key: string]: BookDetail }>({});
   const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
 
@@ -101,18 +99,19 @@ export default function HomePage() {
     checkUser();
   }, []);
 
-  // 🟢 初期表示：重い画像やメモを省いて、必要最小限の列だけを一瞬で高速取得
+  // ⚡ 2段階読み込み：まず最初の20件を即座に表示し、その後バックグラウンドで全件を統合
   const fetchBooks = async () => {
     setLoading(true);
-    const { data, error } = await supabase
+
+    // 1. 最初の20件だけを超高速取得
+    const { data: initialData } = await supabase
       .from("books")
       .select("id, title, sub_title, sort_title, volume, series, created_at, rating, location, image_url")
-      .eq("status", "持っている");
+      .eq("status", "持っている")
+      .limit(20);
 
-    if (error) {
-      console.error("Error fetching books:", error);
-    } else {
-      const lightList: LightBook[] = (data || []).map((b: any) => ({
+    if (initialData && initialData.length > 0) {
+      const initialLight: LightBook[] = initialData.map((b: any) => ({
         id: b.id,
         title: b.title,
         sub_title: b.sub_title,
@@ -124,15 +123,30 @@ export default function HomePage() {
         location: b.location,
         has_image: !!b.image_url,
       }));
+      setBooks(initialLight);
+      setLoading(false); // ⚡ 一瞬で「読み込み中」を解除して20件表示！
+    }
 
-      // 初回データをキャッシュにも保持
-      const initialCache: { [key: string]: BookDetail } = {};
-      (data || []).forEach((b: any) => {
-        initialCache[b.id] = b as BookDetail;
-      });
-      setBookDetailsCache(initialCache);
+    // 2. 残りの全件データを裏側（バックグラウンド）で取得して全リストを更新
+    const { data: allData, error } = await supabase
+      .from("books")
+      .select("id, title, sub_title, sort_title, volume, series, created_at, rating, location, image_url")
+      .eq("status", "持っている");
 
-      setBooks(lightList);
+    if (!error && allData) {
+      const fullLightList: LightBook[] = allData.map((b: any) => ({
+        id: b.id,
+        title: b.title,
+        sub_title: b.sub_title,
+        sort_title: b.sort_title,
+        volume: b.volume,
+        series: b.series,
+        created_at: b.created_at,
+        rating: b.rating,
+        location: b.location,
+        has_image: !!b.image_url,
+      }));
+      setBooks(fullLightList);
     }
     setLoading(false);
   };
@@ -153,7 +167,7 @@ export default function HomePage() {
 
   const existingLocations = Array.from(new Set(books.map(b => b.location).filter(Boolean))) as string[];
 
-  // 🟢 巻を開いたときだけ、詳細データを取得（遅延読み込み）
+  // 巻クリック時に通信発生（1秒程度OKな仕様）
   const handleToggleBookDetail = async (bookId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const willExpand = !expandedBookIds[bookId];
@@ -416,7 +430,7 @@ export default function HomePage() {
           </div>
         )}
 
-        {loading ? (
+        {loading && books.length === 0 ? (
           <p className="text-center text-paper-text-sub py-8 text-xs">読み込み中...</p>
         ) : groupedBooksList.length === 0 ? (
           <div className="text-center py-12 space-y-3 bg-paper-card border border-paper-border">
