@@ -3,12 +3,13 @@
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { ArrowLeft, BookOpen, Trash2, Edit3, Camera, Upload, ZoomIn, X, ArrowUp, ArrowDown, Star, MapPin, CheckCircle } from "lucide-react";
+import { ArrowLeft, BookOpen, Trash2, Edit3, Camera, Upload, ZoomIn, X, ArrowUp, ArrowDown, Star, MapPin, CheckCircle, Save } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.1.04";
+const APP_VERSION = "v1.1.07";
 
-type WantBook = {
+// 🟢 一覧用の軽量データ型（image_urlなどの重いデータを初期取得から除外）
+type LightWantBook = {
   id: string;
   title: string;
   sub_title: string | null;
@@ -19,25 +20,33 @@ type WantBook = {
   publisher: string | null;
   isbn: string | null;
   status: string; // "欲しい" または "その他" または "完了"
-  memo: string | null;
-  release_date: string | null;
   created_at: string;
   rating?: number | null;
   location?: string | null;
+  has_image?: boolean;
+};
+
+// 🟢 詳細・編集用の完全なデータ型
+type WantBookDetail = LightWantBook & {
+  memo: string | null;
+  release_date: string | null;
   image_url?: string | null;
 };
 
 export default function WantPage() {
   const [authChecking, setAuthChecking] = useState(true);
-  const [books, setBooks] = useState<WantBook[]>([]);
+  const [books, setBooks] = useState<LightWantBook[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 詳細・編集キャッシュ
+  const [bookDetailsCache, setBookDetailsCache] = useState<{ [key: string]: WantBookDetail }>({});
 
   // タブ切り替え: "欲しい" | "その他" | "ログ"
   const [activeTab, setActiveTab] = useState<"欲しい" | "その他" | "ログ">("欲しい");
 
   // 編集中の本のIDとフォーム
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<Partial<WantBook>>({});
+  const [editForm, setEditForm] = useState<Partial<WantBookDetail>>({});
 
   // 画像拡大モーダル
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
@@ -62,18 +71,18 @@ export default function WantPage() {
     checkUser();
   }, []);
 
-  // データの取得（本棚の「持っている」以外のもの全て、または完了ログ）
+  // 🟢 初期表示：重い画像やメモを省いて超軽量取得
   const fetchBooks = async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("books")
-      .select("*")
+      .select("id, title, sub_title, sort_title, volume, series, authors, publisher, isbn, status, created_at, rating, location, image_url, memo, release_date")
       .neq("status", "持っている");
 
     if (error) {
       console.error("Error fetching books:", error);
     } else {
-      let fetchedBooks: WantBook[] = data || [];
+      let fetchedBooks: WantBookDetail[] = data || [];
       
       const savedOrder = localStorage.getItem("want_books_order");
       if (savedOrder) {
@@ -89,7 +98,31 @@ export default function WantPage() {
           });
         } catch (e) {}
       }
-      setBooks(fetchedBooks);
+
+      // キャッシュに全データを格納して、一覧は軽量データとして管理
+      const cache: { [key: string]: WantBookDetail } = {};
+      const lightList: LightWantBook[] = fetchedBooks.map(b => {
+        cache[b.id] = b;
+        return {
+          id: b.id,
+          title: b.title,
+          sub_title: b.sub_title,
+          sort_title: b.sort_title,
+          volume: b.volume,
+          series: b.series,
+          authors: b.authors,
+          publisher: b.publisher,
+          isbn: b.isbn,
+          status: b.status,
+          created_at: b.created_at,
+          rating: b.rating,
+          location: b.location,
+          has_image: !!b.image_url,
+        };
+      });
+
+      setBookDetailsCache(cache);
+      setBooks(lightList);
     }
     setLoading(false);
   };
@@ -100,20 +133,18 @@ export default function WantPage() {
     }
   }, [authChecking]);
 
-  const saveOrder = (newBooks: WantBook[]) => {
+  const saveOrder = (newBooks: LightWantBook[]) => {
     setBooks(newBooks);
     const orderIds = newBooks.map(b => b.id);
     localStorage.setItem("want_books_order", JSON.stringify(orderIds));
   };
 
-  const moveUp = (index: number, currentList: WantBook[]) => {
+  const moveUp = (index: number, currentList: LightWantBook[]) => {
     const targetBook = currentList[index];
     const globalIndex = books.findIndex(b => b.id === targetBook.id);
     if (globalIndex <= 0) return;
 
-    // 全体配列で1つ上の要素を探して入れ替え
     const newBooks = [...books];
-    // 同タブ内での上方向の要素を探す
     let prevTargetGlobalIndex = -1;
     for (let i = globalIndex - 1; i >= 0; i--) {
       const b = newBooks[i];
@@ -130,7 +161,7 @@ export default function WantPage() {
     }
   };
 
-  const moveDown = (index: number, currentList: WantBook[]) => {
+  const moveDown = (index: number, currentList: LightWantBook[]) => {
     const targetBook = currentList[index];
     const globalIndex = books.findIndex(b => b.id === targetBook.id);
     if (globalIndex === -1 || globalIndex >= books.length - 1) return;
@@ -152,11 +183,16 @@ export default function WantPage() {
     }
   };
 
-  const startEditing = (book: WantBook) => {
-    setEditingId(book.id);
-    setEditForm({ ...book });
+  // ✏️ 編集開始
+  const startEditing = (bookId: string) => {
+    setEditingId(bookId);
+    const detail = bookDetailsCache[bookId];
+    if (detail) {
+      setEditForm({ ...detail });
+    }
   };
 
+  // 💾 編集保存
   const handleSaveInline = async (id: string) => {
     const updateData = {
       title: editForm.title || "",
@@ -170,7 +206,6 @@ export default function WantPage() {
       memo: editForm.memo || null,
       rating: editForm.rating || 0,
       location: editForm.location || null,
-      image_url: editForm.image_url || null,
     };
 
     const { error } = await supabase
@@ -181,12 +216,16 @@ export default function WantPage() {
     if (error) {
       alert("保存に失敗しました: " + error.message);
     } else {
-      setBooks(books.map((b) => (b.id === id ? { ...b, ...updateData } : b)));
+      setBooks(books.map((b) => (b.id === id ? { ...b, title: updateData.title, status: updateData.status, rating: updateData.rating, location: updateData.location } : b)));
+      setBookDetailsCache((prev) => ({
+        ...prev,
+        [id]: { ...prev[id], ...updateData } as WantBookDetail
+      }));
       setEditingId(null);
     }
   };
 
-  // ステータスを「完了」にしてログに残す
+  // 🟢 ステータスを「完了」にしてログに残す（ボタン表示は「完了」のみ）
   const handleMarkAsComplete = async (id: string) => {
     const { error } = await supabase
       .from("books")
@@ -197,9 +236,15 @@ export default function WantPage() {
       alert("更新に失敗しました: " + error.message);
     } else {
       setBooks(books.map(b => b.id === id ? { ...b, status: "完了" } : b));
+      setBookDetailsCache((prev) => ({
+        ...prev,
+        [id]: { ...prev[id], status: "完了" }
+      }));
+      setEditingId(null);
     }
   };
 
+  // 🗑️ 削除
   const handleDelete = async (id: string, title: string) => {
     if (!window.confirm(`「${title}」を削除してもよろしいですか？`)) return;
 
@@ -213,6 +258,7 @@ export default function WantPage() {
     }
   };
 
+  // 📁 画像選択
   const handleFileChange = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -227,7 +273,11 @@ export default function WantPage() {
           .eq("id", id);
 
         if (!error) {
-          setBooks(books.map(b => b.id === id ? { ...b, image_url: result } : b));
+          setBooks(books.map(b => b.id === id ? { ...b, has_image: true } : b));
+          setBookDetailsCache((prev) => ({
+            ...prev,
+            [id]: { ...prev[id], image_url: result }
+          }));
           if (editingId === id) setEditForm(prev => ({ ...prev, image_url: result }));
         }
       }
@@ -235,6 +285,7 @@ export default function WantPage() {
     reader.readAsDataURL(file);
   };
 
+  // 📷 カメラ撮影起動
   const startCameraForBook = (id: string) => {
     setActiveCameraBookId(id);
     setIsCameraOpen(true);
@@ -253,6 +304,7 @@ export default function WantPage() {
     }, 100);
   };
 
+  // 📷 撮影決定
   const capturePhoto = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -273,7 +325,11 @@ export default function WantPage() {
       .eq("id", activeCameraBookId);
 
     if (!error) {
-      setBooks(books.map(b => b.id === activeCameraBookId ? { ...b, image_url: dataUrl } : b));
+      setBooks(books.map(b => b.id === activeCameraBookId ? { ...b, has_image: true } : b));
+      setBookDetailsCache((prev) => ({
+        ...prev,
+        [activeCameraBookId]: { ...prev[activeCameraBookId], image_url: dataUrl }
+      }));
       if (editingId === activeCameraBookId) setEditForm(prev => ({ ...prev, image_url: dataUrl }));
     }
 
@@ -297,7 +353,6 @@ export default function WantPage() {
     );
   }
 
-  // タブでデータをフィルタリング ("欲しい", "その他", "ログ")
   const filteredBooks = books.filter(b => {
     if (activeTab === "ログ") {
       return b.status === "完了";
@@ -317,7 +372,7 @@ export default function WantPage() {
             <BookOpen className="w-4 h-4 text-paper-caramel" /> Bookノート
           </h1>
 
-          {/* 🟢 上部タブ切り替え (欲しい / その他 / ログボタン) */}
+          {/* 上部タブ切り替え (欲しい / その他 / ログ) */}
           <div className="flex items-center gap-1 bg-paper-sub p-1 border border-paper-border">
             <button
               type="button"
@@ -341,7 +396,6 @@ export default function WantPage() {
             >
               その他
             </button>
-            {/* 小さなログボタンタブ */}
             <button
               type="button"
               onClick={() => setActiveTab("ログ")}
@@ -439,11 +493,12 @@ export default function WantPage() {
             {filteredBooks.map((book, index) => {
               const isEditing = editingId === book.id;
               const fileInputId = `want_file_${book.id}`;
+              const detail = bookDetailsCache[book.id];
 
               return (
                 <div key={book.id} className="bg-paper-card border border-paper-border p-3 shadow-xs text-xs space-y-2">
                   {isEditing ? (
-                    /* ✏️ インライン編集モード */
+                    /* ✏️ 編集モード（編集ボタンを押した時のみ出現し、削除・完了ボタンが含まれる） */
                     <div className="space-y-2.5">
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -510,21 +565,47 @@ export default function WantPage() {
                         />
                       </div>
 
-                      <div className="flex justify-end gap-2 pt-1 border-t border-paper-border">
-                        <button
-                          type="button"
-                          onClick={() => setEditingId(null)}
-                          className="px-3 py-1 bg-paper-sub border border-paper-border text-paper-text-main font-bold cursor-pointer"
-                        >
-                          キャンセル
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSaveInline(book.id)}
-                          className="px-3 py-1 bg-paper-caramel text-white font-bold cursor-pointer"
-                        >
-                          保存
-                        </button>
+                      <div className="flex items-center justify-between pt-1 border-t border-paper-border flex-wrap gap-2">
+                        <div className="flex items-center gap-1.5">
+                          {/* 削除ボタン */}
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(book.id, book.title)}
+                            className="px-2.5 py-1 bg-paper-danger/10 text-paper-danger border border-paper-danger/30 text-[11px] font-bold cursor-pointer hover:bg-paper-danger hover:text-white transition flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>削除</span>
+                          </button>
+
+                          {/* 完了ボタン（表記は「完了」のみ） */}
+                          {book.status !== "完了" && (
+                            <button
+                              type="button"
+                              onClick={() => handleMarkAsComplete(book.id)}
+                              className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                            >
+                              <CheckCircle className="w-3 h-3 text-emerald-600" />
+                              <span>完了</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            className="px-3 py-1 bg-paper-sub border border-paper-border text-paper-text-main font-bold cursor-pointer"
+                          >
+                            キャンセル
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveInline(book.id)}
+                            className="px-3 py-1 bg-paper-caramel text-white font-bold cursor-pointer"
+                          >
+                            保存
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ) : (
@@ -555,14 +636,34 @@ export default function WantPage() {
                       {/* 縦長サムネイル（クリックで拡大） */}
                       <div
                         className="w-14 aspect-[400/566] border border-paper-border bg-paper-inner shrink-0 overflow-hidden flex items-center justify-center cursor-pointer relative group"
-                        onClick={() => book.image_url && setPreviewImageUrl(book.image_url)}
+                        onClick={async () => {
+                          let imgUrl = detail?.image_url;
+                          if (!imgUrl && book.has_image) {
+                            const { data } = await supabase.from("books").select("image_url").eq("id", book.id).single();
+                            imgUrl = data?.image_url;
+                          }
+                          if (imgUrl) setPreviewImageUrl(imgUrl);
+                        }}
                       >
-                        {book.image_url ? (
-                          <img src={book.image_url} alt="表紙" className="w-full h-full object-cover" />
+                        {book.has_image ? (
+                          <img 
+                            src={detail?.image_url || "/placeholder.jpg"} 
+                            alt="表紙" 
+                            className="w-full h-full object-cover" 
+                            onLoad={async () => {
+                              // キャッシュに画像がなければここで取得しておく
+                              if (!detail?.image_url) {
+                                const { data } = await supabase.from("books").select("image_url").eq("id", book.id).single();
+                                if (data?.image_url) {
+                                  setBookDetailsCache(prev => ({ ...prev, [book.id]: { ...prev[book.id], image_url: data.image_url } }));
+                                }
+                              }
+                            }}
+                          />
                         ) : (
                           <span className="text-[9px] text-paper-text-sub text-center px-0.5">写真なし</span>
                         )}
-                        {book.image_url && (
+                        {book.has_image && (
                           <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
                             <ZoomIn className="w-4 h-4" />
                           </div>
@@ -596,19 +697,19 @@ export default function WantPage() {
                           {book.title}
                         </h2>
 
-                        {book.memo && (
+                        {detail?.memo && (
                           <p className="text-xs text-paper-text-sub bg-paper-inner p-1.5 border border-paper-border/60 break-words">
-                            {book.memo}
+                            {detail.memo}
                           </p>
                         )}
 
-                        {/* 操作ボタン類 */}
+                        {/* 🟢 ご要望に合わせた3つのボタン（撮影・画像選択・編集） */}
                         <div className="flex items-center justify-between pt-1.5 flex-wrap gap-1.5">
                           <div className="flex items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => startCameraForBook(book.id)}
-                              className="px-2 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                              className="px-2.5 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
                             >
                               <Camera className="w-3 h-3 text-paper-caramel" />
                               <span>撮影</span>
@@ -617,7 +718,7 @@ export default function WantPage() {
                             <button
                               type="button"
                               onClick={() => document.getElementById(fileInputId)?.click()}
-                              className="px-2 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                              className="px-2.5 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
                             >
                               <Upload className="w-3 h-3 text-paper-caramel" />
                               <span>画像選択</span>
@@ -629,38 +730,16 @@ export default function WantPage() {
                               onChange={(e) => handleFileChange(book.id, e)}
                               className="hidden"
                             />
-
-                            {/* 🟢 ログに残す（完了）ボタン ※ログタブ以外で表示 */}
-                            {book.status !== "完了" && (
-                              <button
-                                type="button"
-                                onClick={() => handleMarkAsComplete(book.id)}
-                                className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-[11px] font-bold cursor-pointer flex items-center gap-1"
-                              >
-                                <CheckCircle className="w-3 h-3 text-emerald-600" />
-                                <span>完了にする</span>
-                              </button>
-                            )}
                           </div>
 
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => startEditing(book)}
-                              className="px-2.5 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
-                            >
-                              <Edit3 className="w-3 h-3 text-paper-caramel" />
-                              <span>編集</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(book.id, book.title)}
-                              className="px-2 py-1 bg-paper-danger/10 text-paper-danger border border-paper-danger/30 text-[11px] font-bold cursor-pointer hover:bg-paper-danger hover:text-white transition"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => startEditing(book.id)}
+                            className="px-3 py-1 bg-paper-sub hover:bg-paper-border border border-paper-border text-[11px] font-bold cursor-pointer flex items-center gap-1"
+                          >
+                            <Edit3 className="w-3 h-3 text-paper-caramel" />
+                            <span>編集</span>
+                          </button>
                         </div>
                       </div>
                     </div>
