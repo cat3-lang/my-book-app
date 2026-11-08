@@ -619,8 +619,8 @@ export default function AddBookPage() {
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-paper-text-sub mb-1">ふりがな (五十音順の並び替え用)</label>
-              <input type="text" value={sortTitle} onChange={(e) => setSortTitle(e.target.value)} placeholder="例: ほうのおきば" className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main" />
+              <label className="block text-xs font-bold text-paper-text-sub mb-1">フリガナ (並び替え用)</label>
+              <input type="text" value={sortTitle} onChange={(e) => setSortTitle(e.target.value)} className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main" />
             </div>
 
             <div>
@@ -652,11 +652,11 @@ export default function AddBookPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-paper-text-sub mb-1">発売日 (発行月)</label>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1">発行月</label>
                 <input type="month" value={releaseDate} onChange={(e) => setReleaseDate(e.target.value)} className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main font-mono" />
               </div>
               <div>
-                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1"><MapPin className="w-3 h-3 text-paper-caramel" /> 置き場所</label>
+                <label className="block text-xs font-bold text-paper-text-sub mb-1 flex items-center gap-1"><MapPin className="w-3 h-3 text-paper-caramel" /> 保管場所</label>
                 <input type="text" list="location-list" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="選択または自由入力" className="w-full bg-paper-inner border border-paper-border px-3 py-2 text-xs text-paper-text-main" />
                 <datalist id="location-list">{existingLocations.map((loc) => (<option key={loc} value={loc} />))}</datalist>
               </div>
