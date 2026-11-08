@@ -6,9 +6,8 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Trash2, Edit3, Camera, Upload, ZoomIn, X, ArrowUp, ArrowDown, Star, MapPin, CheckCircle, Save } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.1.07";
+const APP_VERSION = "v1.1.08";
 
-// 🟢 一覧用の軽量データ型（image_urlなどの重いデータを初期取得から除外）
 type LightWantBook = {
   id: string;
   title: string;
@@ -26,7 +25,6 @@ type LightWantBook = {
   has_image?: boolean;
 };
 
-// 🟢 詳細・編集用の完全なデータ型
 type WantBookDetail = LightWantBook & {
   memo: string | null;
   release_date: string | null;
@@ -71,17 +69,51 @@ export default function WantPage() {
     checkUser();
   }, []);
 
-  // 🟢 初期表示：重い画像やメモを省いて超軽量取得
+  // ⚡ 2段階読み込み：最初の20件を即座に表示し、その後バックグラウンドで全件を取得
   const fetchBooks = async () => {
     setLoading(true);
+
+    // 1. 最初の20件だけを超高速取得
+    const { data: initialData } = await supabase
+      .from("books")
+      .select("id, title, sub_title, sort_title, volume, series, authors, publisher, isbn, status, created_at, rating, location, image_url, memo, release_date")
+      .neq("status", "持っている")
+      .limit(20);
+
+    if (initialData && initialData.length > 0) {
+      const initialCache: { [key: string]: WantBookDetail } = {};
+      const initialLight: LightWantBook[] = initialData.map((b: any) => {
+        initialCache[b.id] = b;
+        return {
+          id: b.id,
+          title: b.title,
+          sub_title: b.sub_title,
+          sort_title: b.sort_title,
+          volume: b.volume,
+          series: b.series,
+          authors: b.authors,
+          publisher: b.publisher,
+          isbn: b.isbn,
+          status: b.status,
+          created_at: b.created_at,
+          rating: b.rating,
+          location: b.location,
+          has_image: !!b.image_url,
+        };
+      });
+
+      setBookDetailsCache(initialCache);
+      setBooks(initialLight);
+      setLoading(false); // ⚡ 一瞬で表示！
+    }
+
+    // 2. 残りの全件データを裏側で取得
     const { data, error } = await supabase
       .from("books")
       .select("id, title, sub_title, sort_title, volume, series, authors, publisher, isbn, status, created_at, rating, location, image_url, memo, release_date")
       .neq("status", "持っている");
 
-    if (error) {
-      console.error("Error fetching books:", error);
-    } else {
+    if (!error && data) {
       let fetchedBooks: WantBookDetail[] = data || [];
       
       const savedOrder = localStorage.getItem("want_books_order");
@@ -99,7 +131,6 @@ export default function WantPage() {
         } catch (e) {}
       }
 
-      // キャッシュに全データを格納して、一覧は軽量データとして管理
       const cache: { [key: string]: WantBookDetail } = {};
       const lightList: LightWantBook[] = fetchedBooks.map(b => {
         cache[b.id] = b;
@@ -183,7 +214,6 @@ export default function WantPage() {
     }
   };
 
-  // ✏️ 編集開始
   const startEditing = (bookId: string) => {
     setEditingId(bookId);
     const detail = bookDetailsCache[bookId];
@@ -192,7 +222,6 @@ export default function WantPage() {
     }
   };
 
-  // 💾 編集保存
   const handleSaveInline = async (id: string) => {
     const updateData = {
       title: editForm.title || "",
@@ -225,7 +254,6 @@ export default function WantPage() {
     }
   };
 
-  // 🟢 ステータスを「完了」にしてログに残す（ボタン表示は「完了」のみ）
   const handleMarkAsComplete = async (id: string) => {
     const { error } = await supabase
       .from("books")
@@ -244,7 +272,6 @@ export default function WantPage() {
     }
   };
 
-  // 🗑️ 削除
   const handleDelete = async (id: string, title: string) => {
     if (!window.confirm(`「${title}」を削除してもよろしいですか？`)) return;
 
@@ -258,7 +285,6 @@ export default function WantPage() {
     }
   };
 
-  // 📁 画像選択
   const handleFileChange = async (id: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -285,7 +311,6 @@ export default function WantPage() {
     reader.readAsDataURL(file);
   };
 
-  // 📷 カメラ撮影起動
   const startCameraForBook = (id: string) => {
     setActiveCameraBookId(id);
     setIsCameraOpen(true);
@@ -304,7 +329,6 @@ export default function WantPage() {
     }, 100);
   };
 
-  // 📷 撮影決定
   const capturePhoto = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -372,7 +396,6 @@ export default function WantPage() {
             <BookOpen className="w-4 h-4 text-paper-caramel" /> Bookノート
           </h1>
 
-          {/* 上部タブ切り替え (欲しい / その他 / ログ) */}
           <div className="flex items-center gap-1 bg-paper-sub p-1 border border-paper-border">
             <button
               type="button"
@@ -472,7 +495,7 @@ export default function WantPage() {
       )}
 
       <main className="max-w-4xl mx-auto px-2 md:px-6 py-4 space-y-3">
-        {loading ? (
+        {loading && books.length === 0 ? (
           <p className="text-center text-paper-text-sub py-8 text-xs">読み込み中...</p>
         ) : filteredBooks.length === 0 ? (
           <div className="text-center py-12 space-y-3 bg-paper-card border border-paper-border">
@@ -498,7 +521,6 @@ export default function WantPage() {
               return (
                 <div key={book.id} className="bg-paper-card border border-paper-border p-3 shadow-xs text-xs space-y-2">
                   {isEditing ? (
-                    /* ✏️ 編集モード（編集ボタンを押した時のみ出現し、削除・完了ボタンが含まれる） */
                     <div className="space-y-2.5">
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -567,7 +589,6 @@ export default function WantPage() {
 
                       <div className="flex items-center justify-between pt-1 border-t border-paper-border flex-wrap gap-2">
                         <div className="flex items-center gap-1.5">
-                          {/* 削除ボタン */}
                           <button
                             type="button"
                             onClick={() => handleDelete(book.id, book.title)}
@@ -577,7 +598,6 @@ export default function WantPage() {
                             <span>削除</span>
                           </button>
 
-                          {/* 完了ボタン（表記は「完了」のみ） */}
                           {book.status !== "完了" && (
                             <button
                               type="button"
@@ -609,9 +629,7 @@ export default function WantPage() {
                       </div>
                     </div>
                   ) : (
-                    /* 📄 通常表示カード */
                     <div className="flex items-start gap-3">
-                      {/* 上下並び替えボタン */}
                       <div className="flex flex-col gap-1 shrink-0 pt-1">
                         <button
                           type="button"
@@ -633,7 +651,6 @@ export default function WantPage() {
                         </button>
                       </div>
 
-                      {/* 縦長サムネイル（クリックで拡大） */}
                       <div
                         className="w-14 aspect-[400/566] border border-paper-border bg-paper-inner shrink-0 overflow-hidden flex items-center justify-center cursor-pointer relative group"
                         onClick={async () => {
@@ -651,7 +668,6 @@ export default function WantPage() {
                             alt="表紙" 
                             className="w-full h-full object-cover" 
                             onLoad={async () => {
-                              // キャッシュに画像がなければここで取得しておく
                               if (!detail?.image_url) {
                                 const { data } = await supabase.from("books").select("image_url").eq("id", book.id).single();
                                 if (data?.image_url) {
@@ -670,7 +686,6 @@ export default function WantPage() {
                         )}
                       </div>
 
-                      {/* 本・メモの情報 */}
                       <div className="flex-1 min-w-0 space-y-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           {book.location && (
@@ -703,7 +718,6 @@ export default function WantPage() {
                           </p>
                         )}
 
-                        {/* 🟢 ご要望に合わせた3つのボタン（撮影・画像選択・編集） */}
                         <div className="flex items-center justify-between pt-1.5 flex-wrap gap-1.5">
                           <div className="flex items-center gap-1.5">
                             <button
