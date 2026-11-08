@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, BookOpen, Trash2, Edit3, Camera, Upload, ZoomIn, X, ArrowUp, ArrowDown, Star, MapPin, CheckCircle, Save } from "lucide-react";
 import FooterNav from "@/components/FooterNav";
 
-const APP_VERSION = "v1.1.08";
+const APP_VERSION = "v1.1.09";
 
 type LightWantBook = {
   id: string;
@@ -18,7 +18,7 @@ type LightWantBook = {
   authors: string | null;
   publisher: string | null;
   isbn: string | null;
-  status: string; // "欲しい" または "その他" または "完了"
+  status: string;
   created_at: string;
   rating?: number | null;
   location?: string | null;
@@ -36,17 +36,13 @@ export default function WantPage() {
   const [books, setBooks] = useState<LightWantBook[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // 詳細・編集キャッシュ
+  // 詳細・画像キャッシュ
   const [bookDetailsCache, setBookDetailsCache] = useState<{ [key: string]: WantBookDetail }>({});
+  const [loadingImageId, setLoadingImageId] = useState<string | null>(null);
 
-  // タブ切り替え: "欲しい" | "その他" | "ログ"
   const [activeTab, setActiveTab] = useState<"欲しい" | "その他" | "ログ">("欲しい");
-
-  // 編集中の本のIDとフォーム
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<WantBookDetail>>({});
-
-  // 画像拡大モーダル
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   // カメラ撮影用
@@ -56,7 +52,6 @@ export default function WantPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
 
-  // 🔒 未ログインチェック
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -69,11 +64,10 @@ export default function WantPage() {
     checkUser();
   }, []);
 
-  // ⚡ 2段階読み込み：最初の20件を即座に表示し、その後バックグラウンドで全件を取得
+  // ⚡ 最初の20件を画像なしで超高速取得し、残りはバックグラウンドで取得
   const fetchBooks = async () => {
     setLoading(true);
 
-    // 1. 最初の20件だけを超高速取得
     const { data: initialData } = await supabase
       .from("books")
       .select("id, title, sub_title, sort_title, volume, series, authors, publisher, isbn, status, created_at, rating, location, image_url, memo, release_date")
@@ -104,10 +98,9 @@ export default function WantPage() {
 
       setBookDetailsCache(initialCache);
       setBooks(initialLight);
-      setLoading(false); // ⚡ 一瞬で表示！
+      setLoading(false);
     }
 
-    // 2. 残りの全件データを裏側で取得
     const { data, error } = await supabase
       .from("books")
       .select("id, title, sub_title, sort_title, volume, series, authors, publisher, isbn, status, created_at, rating, location, image_url, memo, release_date")
@@ -282,6 +275,34 @@ export default function WantPage() {
       const updated = books.filter((b) => b.id !== id);
       saveOrder(updated);
       if (editingId === id) setEditingId(null);
+    }
+  };
+
+  // ⚡ 画像をクリックしてプレビューを開く際、まだキャッシュに画像がなければここで初めて取得する
+  const handleOpenImagePreview = async (bookId: string) => {
+    let imgUrl = bookDetailsCache[bookId]?.image_url;
+    if (!imgUrl) {
+      setLoadingImageId(bookId);
+      const { data, error } = await supabase
+        .from("books")
+        .select("image_url")
+        .eq("id", bookId)
+        .single();
+      
+      if (!error && data?.image_url) {
+        imgUrl = data.image_url;
+        setBookDetailsCache(prev => ({
+          ...prev,
+          [bookId]: { ...prev[bookId], image_url: data.image_url }
+        }));
+      }
+      setLoadingImageId(null);
+    }
+
+    if (imgUrl) {
+      setPreviewImageUrl(imgUrl);
+    } else {
+      alert("画像が登録されていません。");
     }
   };
 
@@ -517,6 +538,7 @@ export default function WantPage() {
               const isEditing = editingId === book.id;
               const fileInputId = `want_file_${book.id}`;
               const detail = bookDetailsCache[book.id];
+              const isImageLoading = loadingImageId === book.id;
 
               return (
                 <div key={book.id} className="bg-paper-card border border-paper-border p-3 shadow-xs text-xs space-y-2">
@@ -651,35 +673,22 @@ export default function WantPage() {
                         </button>
                       </div>
 
+                      {/* ⚡ 画像は最初非表示、サムネイルまたはクリック時に初めて読み込み拡大表示 */}
                       <div
                         className="w-14 aspect-[400/566] border border-paper-border bg-paper-inner shrink-0 overflow-hidden flex items-center justify-center cursor-pointer relative group"
-                        onClick={async () => {
-                          let imgUrl = detail?.image_url;
-                          if (!imgUrl && book.has_image) {
-                            const { data } = await supabase.from("books").select("image_url").eq("id", book.id).single();
-                            imgUrl = data?.image_url;
-                          }
-                          if (imgUrl) setPreviewImageUrl(imgUrl);
-                        }}
+                        onClick={() => handleOpenImagePreview(book.id)}
+                        title="クリックして画像を拡大"
                       >
-                        {book.has_image ? (
-                          <img 
-                            src={detail?.image_url || "/placeholder.jpg"} 
-                            alt="表紙" 
-                            className="w-full h-full object-cover" 
-                            onLoad={async () => {
-                              if (!detail?.image_url) {
-                                const { data } = await supabase.from("books").select("image_url").eq("id", book.id).single();
-                                if (data?.image_url) {
-                                  setBookDetailsCache(prev => ({ ...prev, [book.id]: { ...prev[book.id], image_url: data.image_url } }));
-                                }
-                              }
-                            }}
-                          />
+                        {isImageLoading ? (
+                          <span className="text-[9px] text-paper-text-sub">読込中</span>
+                        ) : book.has_image ? (
+                          <span className="text-[9px] text-paper-caramel font-bold flex items-center gap-0.5">
+                            <ZoomIn className="w-3.5 h-3.5" /> 写真あり
+                          </span>
                         ) : (
                           <span className="text-[9px] text-paper-text-sub text-center px-0.5">写真なし</span>
                         )}
-                        {book.has_image && (
+                        {book.has_image && !isImageLoading && (
                           <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white">
                             <ZoomIn className="w-4 h-4" />
                           </div>
